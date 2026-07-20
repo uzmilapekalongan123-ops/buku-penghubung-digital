@@ -14,11 +14,23 @@ export const PublicReport = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   
-  // Modal State untuk Stempel
+  // --- State Navigasi Bulan/Tahun Kehadiran ---
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth()); // 0-11
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [availableMonths, setAvailableMonths] = useState([]); // [{month: 0, year: 2026}]
+  const [latestRecordDateStr, setLatestRecordDateStr] = useState('');
+
+  // --- State Modal Detail Absensi ---
+  const [absenceDetailModal, setAbsenceDetailModal] = useState({ isOpen: false, status: '', list: [] });
+
+  // --- State Pencarian Tanggal Absensi ---
+  const [searchDate, setSearchDate] = useState('');
+  const [searchResult, setSearchResult] = useState(null);
+
+  // Modal State untuk detail stempel
   const [selectedBadge, setSelectedBadge] = useState(null);
 
   useEffect(() => {
-    // Ambil token dari query parameter URL (?token=xxx)
     const params = new URLSearchParams(window.location.search);
     const tokenParam = params.get('token');
     
@@ -55,7 +67,14 @@ export const PublicReport = () => {
         .eq('siswa_id', stdData.id)
         .order('tanggal', { ascending: false });
 
-      setAttendance(attData || []);
+      const records = attData || [];
+      setAttendance(records);
+
+      if (records.length > 0) {
+        setLatestRecordDateStr(records[0].tanggal);
+      } else {
+        setLatestRecordDateStr(new Date().toISOString().split('T')[0]);
+      }
 
       // 3. Ambil Riwayat Stempel (Badge)
       const { data: bdgData } = await supabase
@@ -84,6 +103,9 @@ export const PublicReport = () => {
 
       setAnnouncements(annData || []);
 
+      // 6. Hitung Rentang Bulan & Tahun yang relevan bagi siswa
+      calculateAvailableMonths(records);
+
     } catch (err) {
       console.error(err);
       setError('Gagal memuat data laporan publik.');
@@ -92,19 +114,153 @@ export const PublicReport = () => {
     }
   };
 
-  // Hitung persentase kehadiran
-  const getAttendanceStats = () => {
-    if (!attendance.length) return { hadir: 0, izin: 0, sakit: 0, alpa: 0, persentase: 100 };
-    const total = attendance.length;
-    const hadir = attendance.filter(a => a.status === 'Hadir').length;
-    const izin = attendance.filter(a => a.status === 'Izin').length;
-    const sakit = attendance.filter(a => a.status === 'Sakit').length;
-    const alpa = total - hadir - izin - sakit;
-    const persentase = Math.round(((hadir + izin + sakit) / total) * 100); // menganggap izin/sakit adalah absensi resmi bersurat
-    const persentaseHadirMurni = Math.round((hadir / total) * 100);
+  // Menentukan daftar bulan/tahun yang relevan berdasarkan tanggal absensi siswa
+  const calculateAvailableMonths = (records) => {
+    const list = [];
+    const today = new Date();
+    
+    if (records.length === 0) {
+      list.push({ month: today.getMonth(), year: today.getFullYear() });
+      setAvailableMonths(list);
+      return;
+    }
 
-    return { hadir, izin, sakit, alpa, persentase: persentaseHadirMurni };
+    const oldestDate = new Date(records[records.length - 1].tanggal);
+    const newestDate = new Date(records[0].tanggal);
+
+    let current = new Date(oldestDate.getFullYear(), oldestDate.getMonth(), 1);
+    const end = new Date(newestDate.getFullYear(), newestDate.getMonth(), 1);
+
+    while (current <= end) {
+      list.push({
+        month: current.getMonth(),
+        year: current.getFullYear()
+      });
+      current.setMonth(current.getMonth() + 1);
+    }
+
+    setAvailableMonths(list);
+    setSelectedMonth(newestDate.getMonth());
+    setSelectedYear(newestDate.getFullYear());
   };
+
+  // Logika Hari Libur & Rekonstruksi Kehadiran dalam Bulan Terpilih
+  const getMonthlyAttendanceDetails = () => {
+    if (!latestRecordDateStr) return { stats: { hadir: 0, sakit: 0, izin: 0, alpa: 0, libur: 0, persentase: 100 }, calendarDays: [] };
+
+    const daysInMonth = new Date(selectedYear, selectedMonth + 1, 0).getDate();
+    const calendarDays = [];
+    
+    let hadir = 0;
+    let sakit = 0;
+    let izin = 0;
+    let alpa = 0;
+    let libur = 0;
+
+    const latestRecordDate = new Date(latestRecordDateStr);
+
+    for (let day = 1; day <= daysInMonth; day++) {
+      const currentDate = new Date(selectedYear, selectedMonth, day);
+      const dateStr = currentDate.toISOString().split('T')[0];
+      
+      const record = attendance.find(a => a.tanggal === dateStr);
+
+      if (record) {
+        if (record.status === 'Hadir') hadir++;
+        else if (record.status === 'Sakit') sakit++;
+        else if (record.status === 'Izin') izin++;
+        else if (record.status === 'Alpa') alpa++;
+        
+        calendarDays.push({
+          tanggal: dateStr,
+          status: record.status,
+          keterangan: record.keterangan || '',
+          type: 'record'
+        });
+      } else {
+        if (currentDate > latestRecordDate) {
+          calendarDays.push({
+            tanggal: dateStr,
+            status: 'Belum Direkam',
+            keterangan: 'Absensi belum diinput oleh guru',
+            type: 'future'
+          });
+        } else {
+          libur++;
+          calendarDays.push({
+            tanggal: dateStr,
+            status: 'Libur',
+            keterangan: 'Hari Libur / Sekolah Tutup',
+            type: 'holiday'
+          });
+        }
+      }
+    }
+
+    const totalHariSekolah = hadir + sakit + izin + alpa;
+    const persentase = totalHariSekolah > 0 
+      ? Math.round((hadir / totalHariSekolah) * 100) 
+      : 100;
+
+    return {
+      stats: { hadir, sakit, izin, alpa, libur, persentase },
+      calendarDays
+    };
+  };
+
+  const { stats, calendarDays } = getMonthlyAttendanceDetails();
+
+  // Membuka modal detail ketidakhadiran (Sakit, Izin, Alpa)
+  const openAbsenceDetail = (statusType) => {
+    const list = calendarDays.filter(d => d.status === statusType);
+    setAbsenceDetailModal({
+      isOpen: true,
+      status: statusType,
+      list
+    });
+  };
+
+  // Aksi Pencarian Tanggal Kehadiran
+  const handleSearchDate = (e) => {
+    const dateVal = e.target.value;
+    setSearchDate(dateVal);
+
+    if (!dateVal) {
+      setSearchResult(null);
+      return;
+    }
+
+    const latestRecordDate = new Date(latestRecordDateStr);
+    const targetDate = new Date(dateVal);
+    const record = attendance.find(a => a.tanggal === dateVal);
+
+    if (record) {
+      setSearchResult({
+        tanggal: dateVal,
+        status: record.status,
+        keterangan: record.keterangan || 'Hadir di sekolah'
+      });
+    } else {
+      if (targetDate > latestRecordDate) {
+        setSearchResult({
+          tanggal: dateVal,
+          status: 'Belum Direkam',
+          keterangan: 'Absensi belum diumumkan / belum sampai tanggal ini.'
+        });
+      } else {
+        setSearchResult({
+          tanggal: dateVal,
+          status: 'Libur',
+          keterangan: 'Hari Libur / Sekolah Tutup'
+        });
+      }
+    }
+  };
+
+  const namaBulan = [
+    'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+    'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+  ];
 
   if (loading) {
     return (
@@ -126,10 +282,9 @@ export const PublicReport = () => {
     );
   }
 
-  const stats = getAttendanceStats();
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', paddingBottom: '30px' }}>
+      
       {/* Header Siswa */}
       <header>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
@@ -162,38 +317,159 @@ export const PublicReport = () => {
           <span>Halaman ini bersifat <strong>BACA SAJA</strong>. Informasi disinkronisasi langsung oleh sekolah demi kenyamanan keluarga.</span>
         </div>
 
-        {/* 1. Ringkasan Kehadiran */}
+        {/* 1. Ringkasan Kehadiran dengan Navigasi Bulan/Tahun */}
         <Card>
-          <h3 style={{ fontSize: '1.1rem', color: '#1b4332', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Calendar size={20} /> Statistik Kehadiran
-          </h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+            <h3 style={{ fontSize: '1.05rem', color: '#1b4332', fontWeight: 600 }}>Statistik Kehadiran</h3>
+            
+            <select 
+              style={{ padding: '4px 6px', border: '1px solid rgba(0,0,0,0.15)', borderRadius: '6px', fontSize: '0.8rem', fontFamily: 'inherit', fontWeight: 500 }}
+              value={`${selectedMonth}-${selectedYear}`}
+              onChange={(e) => {
+                const [m, y] = e.target.value.split('-').map(Number);
+                setSelectedMonth(m);
+                setSelectedYear(y);
+              }}
+            >
+              {availableMonths.map((item, idx) => (
+                <option key={idx} value={`${item.month}-${item.year}`}>
+                  {namaBulan[item.month]} {item.year}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-around', margin: '15px 0' }}>
             <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: '2rem', fontWeight: 700, color: '#2e7d32' }}>{stats.persentase}%</div>
-              <div style={{ fontSize: '0.75rem', color: '#6c757d' }}>Kehadiran Murni</div>
+              <div style={{ fontSize: '2.2rem', fontWeight: 700, color: '#2d6a4f' }}>{stats.persentase}%</div>
+              <div style={{ fontSize: '0.72rem', color: '#6c757d', fontWeight: 500 }}>Kehadiran Murni</div>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.85rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: '20px' }}>
                 <span style={{ color: 'var(--color-hadir)', fontWeight: 600 }}>• Hadir:</span>
-                <span>{stats.hadir} hari</span>
+                <span style={{ fontWeight: 600 }}>{stats.hadir} hari</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '20px' }}>
-                <span style={{ color: 'var(--color-sakit)', fontWeight: 600 }}>• Sakit:</span>
-                <span>{stats.sakit} hari</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '20px' }}>
-                <span style={{ color: 'var(--color-izin)', fontWeight: 600 }}>• Izin:</span>
-                <span>{stats.izin} hari</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '20px' }}>
-                <span style={{ color: 'var(--color-alpa)', fontWeight: 600 }}>• Alpa:</span>
-                <span style={{ fontWeight: stats.alpa > 0 ? 700 : 400 }}>{stats.alpa} hari</span>
+              
+              <button 
+                onClick={() => openAbsenceDetail('Sakit')}
+                style={{ display: 'flex', justifyContent: 'space-between', gap: '20px', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 'inherit', width: '100%', textAlign: 'left' }}
+              >
+                <span style={{ color: 'var(--color-sakit)', fontWeight: 600, textDecoration: 'underline' }}>• Sakit:</span>
+                <span style={{ fontWeight: 600, textDecoration: 'underline' }}>{stats.sakit} hari</span>
+              </button>
+
+              <button 
+                onClick={() => openAbsenceDetail('Izin')}
+                style={{ display: 'flex', justifyContent: 'space-between', gap: '20px', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 'inherit', width: '100%', textAlign: 'left' }}
+              >
+                <span style={{ color: 'var(--color-izin)', fontWeight: 600, textDecoration: 'underline' }}>• Izin:</span>
+                <span style={{ fontWeight: 600, textDecoration: 'underline' }}>{stats.izin} hari</span>
+              </button>
+
+              <button 
+                onClick={() => openAbsenceDetail('Alpa')}
+                style={{ display: 'flex', justifyContent: 'space-between', gap: '20px', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 'inherit', width: '100%', textAlign: 'left' }}
+              >
+                <span style={{ color: 'var(--color-alpa)', fontWeight: 600, textDecoration: 'underline' }}>• Alpa:</span>
+                <span style={{ fontWeight: 600, textDecoration: 'underline' }}>{stats.alpa} hari</span>
+              </button>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '20px', color: '#6c757d' }}>
+                <span>• Libur:</span>
+                <span>{stats.libur} hari</span>
               </div>
             </div>
           </div>
         </Card>
 
-        {/* 2. Koleksi Stempel Apresiasi */}
+        {/* 2. Cari Kehadiran Siswa via Datepicker */}
+        <Card>
+          <h3 style={{ fontSize: '1.05rem', color: '#1b4332', marginBottom: '12px', fontWeight: 600 }}>Cari Kehadiran Siswa</h3>
+          <div className="form-group" style={{ marginBottom: searchResult ? '12px' : '0' }}>
+            <label className="form-label" htmlFor="search-date">Pilih Tanggal</label>
+            <input 
+              type="date" 
+              id="search-date"
+              className="form-input" 
+              value={searchDate}
+              onChange={handleSearchDate}
+            />
+          </div>
+
+          {searchResult && (
+            <div style={{
+              background: '#f8f9fa',
+              padding: '12px',
+              borderRadius: '10px',
+              borderLeft: `4px solid ${
+                searchResult.status === 'Hadir' ? 'var(--color-hadir)' :
+                searchResult.status === 'Sakit' ? 'var(--color-sakit)' :
+                searchResult.status === 'Izin' ? 'var(--color-izin)' :
+                searchResult.status === 'Alpa' ? 'var(--color-alpa)' : '#6c757d'
+              }`,
+              marginTop: '10px'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                <span style={{ fontWeight: 600, fontSize: '0.85rem' }}>
+                  {new Date(searchResult.tanggal).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                </span>
+                <span className={`badge-status badge-${searchResult.status.toLowerCase().replace(/\s+/g, '')}`}>
+                  {searchResult.status}
+                </span>
+              </div>
+              <p style={{ fontSize: '0.8rem', color: '#555', margin: 0 }}><strong>Info:</strong> {searchResult.keterangan}</p>
+            </div>
+          )}
+        </Card>
+
+        {/* 3. Riwayat Kehadiran Bulan Terpilih */}
+        <Card>
+          <h3 style={{ fontSize: '1.05rem', color: '#1b4332', marginBottom: '14px', fontWeight: 600 }}>Riwayat Bulan Ini</h3>
+          {calendarDays.length === 0 ? (
+            <p style={{ color: '#6c757d', fontSize: '0.85rem', fontStyle: 'italic', textAlign: 'center', padding: '15px 0' }}>
+              Belum ada riwayat absensi tercatat.
+            </p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '300px', overflowY: 'auto' }}>
+              {calendarDays
+                .filter(d => d.type === 'record' || d.type === 'holiday')
+                .map((day, idx) => (
+                  <div 
+                    key={idx} 
+                    style={{ 
+                      display: 'flex', 
+                      justifyContent: 'space-between', 
+                      alignItems: 'center', 
+                      padding: '10px 12px', 
+                      background: day.type === 'holiday' ? 'rgba(0,0,0,0.02)' : 'white',
+                      borderBottom: '1px solid rgba(0,0,0,0.04)',
+                      fontSize: '0.85rem'
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 600 }}>
+                        {new Date(day.tanggal).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      </div>
+                      {day.keterangan && <div style={{ fontSize: '0.75rem', color: '#6c757d', marginTop: '2px' }}>{day.keterangan}</div>}
+                    </div>
+                    <span className={`badge-status ${
+                      day.status === 'Hadir' ? 'badge-hadir' :
+                      day.status === 'Sakit' ? 'badge-sakit' :
+                      day.status === 'Izin' ? 'badge-izin' :
+                      day.status === 'Alpa' ? 'badge-alpa' : 'badge-alpa'
+                    }`} style={{ 
+                      backgroundColor: day.status === 'Libur' ? '#e9ecef' : undefined,
+                      color: day.status === 'Libur' ? '#495057' : undefined
+                    }}>
+                      {day.status}
+                    </span>
+                  </div>
+                ))}
+            </div>
+          )}
+        </Card>
+
+        {/* 4. Koleksi Stempel Apresiasi */}
         <Card>
           <h3 style={{ fontSize: '1.1rem', color: '#1b4332', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Award size={20} /> Lencana Stempel ({badges.length})
@@ -221,7 +497,7 @@ export const PublicReport = () => {
           </p>
         </Card>
 
-        {/* 3. Catatan Prestasi */}
+        {/* 5. Catatan Prestasi */}
         <Card>
           <h3 style={{ fontSize: '1.1rem', color: '#1b4332', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Star size={20} /> Catatan Prestasi Siswa
@@ -243,7 +519,7 @@ export const PublicReport = () => {
           )}
         </Card>
 
-        {/* 4. Pengumuman Terakhir */}
+        {/* 6. Pengumuman Terakhir */}
         <Card>
           <h3 style={{ fontSize: '1.1rem', color: '#1b4332', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <MessageCircle size={20} /> Papan Pengumuman
@@ -283,7 +559,7 @@ export const PublicReport = () => {
             href={`https://wa.me/${student.kelas.wa_wali}?text=Assalamualaikum%20Ustadz/Ustadzah%2C%20saya%20wali%20dari%20${encodeURIComponent(student.nama_siswa)}...`} 
             target="_blank" 
             rel="noopener noreferrer" 
-            className="wa-float fade-in"
+            className="wa-float"
           >
             <MessageCircle size={18} />
             Hubungi Wali Kelas via WhatsApp
@@ -291,7 +567,38 @@ export const PublicReport = () => {
         )}
       </div>
 
-      {/* Modal Detail Stempel */}
+      {/* MODAL 1: Detail Ketidakhadiran */}
+      <Modal 
+        isOpen={absenceDetailModal.isOpen} 
+        onClose={() => setAbsenceDetailModal({ isOpen: false, status: '', list: [] })} 
+        title={`Riwayat Ketidakhadiran: ${absenceDetailModal.status}`}
+      >
+        <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+          {absenceDetailModal.list.length === 0 ? (
+            <p style={{ color: '#888', fontStyle: 'italic', fontSize: '0.9rem', textAlign: 'center', padding: '10px' }}>
+              Tidak ada catatan untuk bulan ini.
+            </p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {absenceDetailModal.list.map((day, idx) => (
+                <div key={idx} style={{ padding: '12px', background: '#f8f9fa', borderRadius: '8px', borderLeft: `4px solid ${
+                  absenceDetailModal.status === 'Sakit' ? 'var(--color-sakit)' :
+                  absenceDetailModal.status === 'Izin' ? 'var(--color-izin)' : 'var(--color-alpa)'
+                }` }}>
+                  <div style={{ fontWeight: 600, fontSize: '0.9rem', color: '#1b4332', marginBottom: '4px' }}>
+                    {new Date(day.tanggal).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                  </div>
+                  <p style={{ margin: 0, fontSize: '0.82rem', color: '#555' }}>
+                    <strong>Keterangan:</strong> {day.keterangan || 'Tidak ada keterangan tambahan.'}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </Modal>
+
+      {/* MODAL 2: Detail Stempel */}
       <Modal 
         isOpen={!!selectedBadge} 
         onClose={() => setSelectedBadge(null)} 

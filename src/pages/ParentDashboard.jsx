@@ -3,7 +3,7 @@ import { supabase } from '../supabaseClient';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import { Modal } from '../components/Modal';
-import { Calendar, Award, MessageCircle, Star, Share2, LogOut, Send, AlertTriangle } from 'lucide-react';
+import { Calendar, Award, MessageCircle, Star, Share2, LogOut, Send, AlertTriangle, ChevronLeft, ChevronRight, Info } from 'lucide-react';
 
 export const ParentDashboard = ({ student, onLogout }) => {
   const [activeTab, setActiveTab] = useState('attendance'); // 'attendance', 'badges', 'announcements'
@@ -13,11 +13,24 @@ export const ParentDashboard = ({ student, onLogout }) => {
   const [announcements, setAnnouncements] = useState([]);
   const [comments, setComments] = useState({}); // { announcementId: [comments] }
   const [newComments, setNewComments] = useState({}); // { announcementId: 'text' }
-  const [commentErrors, setCommentErrors] = useState({}); // { announcementId: 'error msg' }
+  const [commentErrors, setCommentErrors] = useState({}); // { announcementId: 'error' }
   const [loading, setLoading] = useState(true);
   const [submittingComment, setSubmittingComment] = useState({});
   const [copySuccess, setCopySuccess] = useState(false);
   
+  // --- State Navigasi Bulan/Tahun Kehadiran ---
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth()); // 0-11
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [availableMonths, setAvailableMonths] = useState([]); // [{month: 0, year: 2026}]
+  const [latestRecordDateStr, setLatestRecordDateStr] = useState('');
+
+  // --- State Modal Detail Absensi ---
+  const [absenceDetailModal, setAbsenceDetailModal] = useState({ isOpen: false, status: '', list: [] });
+
+  // --- State Pencarian Tanggal Absensi ---
+  const [searchDate, setSearchDate] = useState('');
+  const [searchResult, setSearchResult] = useState(null);
+
   // Modal State untuk detail stempel
   const [selectedBadge, setSelectedBadge] = useState(null);
 
@@ -35,7 +48,15 @@ export const ParentDashboard = ({ student, onLogout }) => {
         .select('*')
         .eq('siswa_id', student.id)
         .order('tanggal', { ascending: false });
-      setAttendance(attData || []);
+      const records = attData || [];
+      setAttendance(records);
+
+      // Cari tanggal absensi terakhir secara keseluruhan di database untuk logika Hari Libur
+      if (records.length > 0) {
+        setLatestRecordDateStr(records[0].tanggal);
+      } else {
+        setLatestRecordDateStr(new Date().toISOString().split('T')[0]);
+      }
 
       // 2. Ambil stempel/badge
       const { data: bdgData } = await supabase
@@ -70,7 +91,6 @@ export const ParentDashboard = ({ student, onLogout }) => {
           .in('pengumuman_id', annIds)
           .order('created_at', { ascending: true });
         
-        // Kelompokkan komentar berdasarkan pengumuman_id
         const grouped = {};
         cmtData?.forEach(c => {
           if (!grouped[c.pengumuman_id]) {
@@ -81,10 +101,166 @@ export const ParentDashboard = ({ student, onLogout }) => {
         setComments(grouped);
       }
 
+      // 6. Hitung Rentang Bulan & Tahun yang relevan bagi siswa
+      calculateAvailableMonths(records);
+
     } catch (err) {
       console.error('Error fetching parent dashboard data:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Menentukan daftar bulan/tahun yang relevan berdasarkan tanggal absensi siswa
+  const calculateAvailableMonths = (records) => {
+    const list = [];
+    const today = new Date();
+    
+    // Jika tidak ada absensi sama sekali, gunakan bulan ini saja
+    if (records.length === 0) {
+      list.push({ month: today.getMonth(), year: today.getFullYear() });
+      setAvailableMonths(list);
+      return;
+    }
+
+    // Temukan tanggal absensi tertua
+    const oldestDate = new Date(records[records.length - 1].tanggal);
+    const newestDate = new Date(records[0].tanggal);
+
+    let current = new Date(oldestDate.getFullYear(), oldestDate.getMonth(), 1);
+    const end = new Date(newestDate.getFullYear(), newestDate.getMonth(), 1);
+
+    while (current <= end) {
+      list.push({
+        month: current.getMonth(),
+        year: current.getFullYear()
+      });
+      // Pindah ke bulan berikutnya
+      current.setMonth(current.getMonth() + 1);
+    }
+
+    setAvailableMonths(list);
+
+    // Set bulan terpilih ke bulan terbaru yang memiliki absensi
+    setSelectedMonth(newestDate.getMonth());
+    setSelectedYear(newestDate.getFullYear());
+  };
+
+  // Logika Hari Libur & Rekonstruksi Kehadiran dalam Bulan Terpilih
+  const getMonthlyAttendanceDetails = () => {
+    if (!latestRecordDateStr) return { stats: { hadir: 0, sakit: 0, izin: 0, alpa: 0, libur: 0, persentase: 100 }, calendarDays: [] };
+
+    const daysInMonth = new Date(selectedYear, selectedMonth + 1, 0).getDate();
+    const calendarDays = [];
+    
+    let hadir = 0;
+    let sakit = 0;
+    let izin = 0;
+    let alpa = 0;
+    let libur = 0;
+
+    const latestRecordDate = new Date(latestRecordDateStr);
+
+    for (let day = 1; day <= daysInMonth; day++) {
+      const currentDate = new Date(selectedYear, selectedMonth, day);
+      const dateStr = currentDate.toISOString().split('T')[0];
+      
+      // Cari apakah ada data absensi tertulis di hari ini
+      const record = attendance.find(a => a.tanggal === dateStr);
+
+      if (record) {
+        if (record.status === 'Hadir') hadir++;
+        else if (record.status === 'Sakit') sakit++;
+        else if (record.status === 'Izin') izin++;
+        else if (record.status === 'Alpa') alpa++;
+        
+        calendarDays.push({
+          tanggal: dateStr,
+          status: record.status,
+          keterangan: record.keterangan || '',
+          type: 'record'
+        });
+      } else {
+        // Jika tidak ada absensi di tanggal ini
+        if (currentDate > latestRecordDate) {
+          // Tanggal melebihi hari perekaman absensi terakhir = Belum Direkam
+          calendarDays.push({
+            tanggal: dateStr,
+            status: 'Belum Direkam',
+            keterangan: 'Absensi belum diinput oleh guru',
+            type: 'future'
+          });
+        } else {
+          // Tanggal di masa lalu sebelum perekaman absensi terakhir = Libur
+          libur++;
+          calendarDays.push({
+            tanggal: dateStr,
+            status: 'Libur',
+            keterangan: 'Hari Libur / Sekolah Tutup',
+            type: 'holiday'
+          });
+        }
+      }
+    }
+
+    // Persentase kehadiran murni (tidak menghitung hari libur)
+    const totalHariSekolah = hadir + sakit + izin + alpa;
+    const persentase = totalHariSekolah > 0 
+      ? Math.round((hadir / totalHariSekolah) * 100) 
+      : 100;
+
+    return {
+      stats: { hadir, sakit, izin, alpa, libur, persentase },
+      calendarDays
+    };
+  };
+
+  const { stats, calendarDays } = getMonthlyAttendanceDetails();
+
+  // Membuka modal detail ketidakhadiran (Sakit, Izin, Alpa)
+  const openAbsenceDetail = (statusType) => {
+    const list = calendarDays.filter(d => d.status === statusType);
+    setAbsenceDetailModal({
+      isOpen: true,
+      status: statusType,
+      list
+    });
+  };
+
+  // Aksi Pencarian Tanggal Kehadiran
+  const handleSearchDate = (e) => {
+    const dateVal = e.target.value;
+    setSearchDate(dateVal);
+
+    if (!dateVal) {
+      setSearchResult(null);
+      return;
+    }
+
+    const latestRecordDate = new Date(latestRecordDateStr);
+    const targetDate = new Date(dateVal);
+    const record = attendance.find(a => a.tanggal === dateVal);
+
+    if (record) {
+      setSearchResult({
+        tanggal: dateVal,
+        status: record.status,
+        keterangan: record.keterangan || 'Hadir di sekolah'
+      });
+    } else {
+      if (targetDate > latestRecordDate) {
+        setSearchResult({
+          tanggal: dateVal,
+          status: 'Belum Direkam',
+          keterangan: 'Absensi belum diumumkan / belum sampai tanggal ini.'
+        });
+      } else {
+        setSearchResult({
+          tanggal: dateVal,
+          status: 'Libur',
+          keterangan: 'Hari Libur / Sekolah Tutup'
+        });
+      }
     }
   };
 
@@ -111,10 +287,7 @@ export const ParentDashboard = ({ student, onLogout }) => {
     const words = getWordCount(text);
     
     if (words === 0) return;
-    if (words > 10) {
-      setCommentErrors(prev => ({ ...prev, [announcementId]: 'Komentar tidak boleh lebih dari 10 kata!' }));
-      return;
-    }
+    if (words > 10) return;
 
     setSubmittingComment(prev => ({ ...prev, [announcementId]: true }));
 
@@ -129,11 +302,8 @@ export const ParentDashboard = ({ student, onLogout }) => {
         .select()
         .single();
 
-      if (error) {
-        throw error;
-      }
+      if (error) throw error;
 
-      // Update state komentar lokal
       setComments(prev => {
         const currentList = prev[announcementId] || [];
         return {
@@ -142,75 +312,62 @@ export const ParentDashboard = ({ student, onLogout }) => {
         };
       });
 
-      // Reset form input komentar
       setNewComments(prev => ({ ...prev, [announcementId]: '' }));
 
     } catch (err) {
-      console.error('Gagal mengirim komentar:', err);
-      setCommentErrors(prev => ({ ...prev, [announcementId]: 'Gagal mengirim komentar. Coba lagi.' }));
+      console.error(err);
+      setCommentErrors(prev => ({ ...prev, [announcementId]: 'Gagal mengirim komentar.' }));
     } finally {
       setSubmittingComment(prev => ({ ...prev, [announcementId]: false }));
     }
   };
 
   const handleCopyLink = () => {
-    // Generate public link
     const publicLink = `${window.location.origin}${window.location.pathname}?token=${student.token}`;
-    
     navigator.clipboard.writeText(publicLink).then(() => {
       setCopySuccess(true);
       setTimeout(() => setCopySuccess(false), 3000);
-    }).catch(err => {
-      console.error('Failed to copy public link:', err);
     });
   };
 
-  const stats = (() => {
-    if (!attendance.length) return { hadir: 0, sakit: 0, izin: 0, alpa: 0, persentase: 100 };
-    const total = attendance.length;
-    const hadir = attendance.filter(a => a.status === 'Hadir').length;
-    const sakit = attendance.filter(a => a.status === 'Sakit').length;
-    const izin = attendance.filter(a => a.status === 'Izin').length;
-    const alpa = total - hadir - sakit - izin;
-    const persentase = Math.round((hadir / total) * 100);
-    return { hadir, sakit, izin, alpa, persentase };
-  })();
-
-  if (loading) {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', gap: '12px' }}>
-        <div style={{ width: '40px', height: '40px', border: '4px solid #e8f5e9', borderTopColor: '#2d6a4f', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
-        <p style={{ color: '#2d6a4f', fontWeight: 500 }}>Memuat Laporan Ananda...</p>
-      </div>
-    );
-  }
+  const namaBulan = [
+    'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+    'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+  ];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', paddingBottom: '40px' }}>
       
       {/* Top Navbar */}
       <header>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
           <div>
             <h2 style={{ fontSize: '1.4rem', fontWeight: 700, margin: 0 }}>Buku Penghubung</h2>
             <p style={{ opacity: 0.9, fontSize: '0.85rem' }}>{student.kelas?.nama_kelas}</p>
           </div>
+          {/* Tombol Keluar Lebih Besar & Jelas untuk Mobile */}
           <button 
-            onClick={onLogout} 
+            onClick={() => {
+              console.log("Menghapus sesi & keluar...");
+              onLogout();
+            }}
             style={{ 
-              background: 'rgba(255,255,255,0.15)', 
-              border: 'none', 
-              color: 'white', 
-              padding: '8px', 
-              borderRadius: '50%', 
+              background: '#ffe2e2', 
+              border: '1.5px solid #ffb3b3', 
+              color: '#c62828', 
+              padding: '8px 14px', 
+              borderRadius: '20px', 
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center'
+              gap: '6px',
+              fontSize: '0.85rem',
+              fontWeight: 600,
+              boxShadow: '0 2px 5px rgba(198, 40, 40, 0.1)'
             }}
-            title="Keluar"
           >
-            <LogOut size={18} />
+            <LogOut size={16} />
+            Keluar
           </button>
         </div>
 
@@ -293,66 +450,162 @@ export const ParentDashboard = ({ student, onLogout }) => {
       {/* Tab Contents */}
       <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }} className="fade-in">
         
-        {/* Tab 1: Kehadiran */}
+        {/* TAB 1: KEHADIRAN (STATISTIK BULANAN & HARI LIBUR) */}
         {activeTab === 'attendance' && (
           <>
             <Card>
-              <h3 style={{ fontSize: '1.05rem', color: '#1b4332', marginBottom: '14px', fontWeight: 600 }}>Statistik Kehadiran</h3>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+                <h3 style={{ fontSize: '1.05rem', color: '#1b4332', fontWeight: 600 }}>Statistik Kehadiran</h3>
+                
+                {/* Selector Bulan & Tahun Terbatas */}
+                <div style={{ display: 'flex', gap: '4px' }}>
+                  <select 
+                    style={{ padding: '4px 6px', border: '1px solid rgba(0,0,0,0.15)', borderRadius: '6px', fontSize: '0.8rem', fontFamily: 'inherit', fontWeight: 500 }}
+                    value={`${selectedMonth}-${selectedYear}`}
+                    onChange={(e) => {
+                      const [m, y] = e.target.value.split('-').map(Number);
+                      setSelectedMonth(m);
+                      setSelectedYear(y);
+                    }}
+                  >
+                    {availableMonths.map((item, idx) => (
+                      <option key={idx} value={`${item.month}-${item.year}`}>
+                        {namaBulan[item.month]} {item.year}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-around', margin: '10px 0' }}>
                 <div style={{ textAlign: 'center' }}>
                   <div style={{ fontSize: '2.2rem', fontWeight: 700, color: '#2d6a4f' }}>{stats.persentase}%</div>
-                  <div style={{ fontSize: '0.75rem', color: '#6c757d' }}>Kehadiran Murni</div>
+                  <div style={{ fontSize: '0.72rem', color: '#6c757d', fontWeight: 500 }}>Kehadiran Murni</div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.85rem' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: '20px' }}>
                     <span style={{ color: 'var(--color-hadir)', fontWeight: 600 }}>• Hadir:</span>
-                    <span>{stats.hadir} hari</span>
+                    <span style={{ fontWeight: 600 }}>{stats.hadir} hari</span>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '20px' }}>
-                    <span style={{ color: 'var(--color-sakit)', fontWeight: 600 }}>• Sakit:</span>
-                    <span>{stats.sakit} hari</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '20px' }}>
-                    <span style={{ color: 'var(--color-izin)', fontWeight: 600 }}>• Izin:</span>
-                    <span>{stats.izin} hari</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '20px' }}>
-                    <span style={{ color: 'var(--color-alpa)', fontWeight: 600 }}>• Alpa:</span>
-                    <span style={{ fontWeight: stats.alpa > 0 ? 700 : 400 }}>{stats.alpa} hari</span>
+                  
+                  {/* Clickable Sick Stats */}
+                  <button 
+                    onClick={() => openAbsenceDetail('Sakit')}
+                    style={{ display: 'flex', justifyContent: 'space-between', gap: '20px', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 'inherit', width: '100%', textAlign: 'left' }}
+                  >
+                    <span style={{ color: 'var(--color-sakit)', fontWeight: 600, textDecoration: 'underline' }}>• Sakit:</span>
+                    <span style={{ fontWeight: 600, textDecoration: 'underline' }}>{stats.sakit} hari</span>
+                  </button>
+
+                  {/* Clickable Permit Stats */}
+                  <button 
+                    onClick={() => openAbsenceDetail('Izin')}
+                    style={{ display: 'flex', justifyContent: 'space-between', gap: '20px', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 'inherit', width: '100%', textAlign: 'left' }}
+                  >
+                    <span style={{ color: 'var(--color-izin)', fontWeight: 600, textDecoration: 'underline' }}>• Izin:</span>
+                    <span style={{ fontWeight: 600, textDecoration: 'underline' }}>{stats.izin} hari</span>
+                  </button>
+
+                  {/* Clickable Alpha Stats */}
+                  <button 
+                    onClick={() => openAbsenceDetail('Alpa')}
+                    style={{ display: 'flex', justifyContent: 'space-between', gap: '20px', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 'inherit', width: '100%', textAlign: 'left' }}
+                  >
+                    <span style={{ color: 'var(--color-alpa)', fontWeight: 600, textDecoration: 'underline' }}>• Alpa:</span>
+                    <span style={{ fontWeight: 600, textDecoration: 'underline' }}>{stats.alpa} hari</span>
+                  </button>
+                  
+                  {/* Holiday Stats */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '20px', color: '#6c757d' }}>
+                    <span>• Libur:</span>
+                    <span>{stats.libur} hari</span>
                   </div>
                 </div>
               </div>
             </Card>
 
+            {/* Pencarian Kehadiran Harian via Datepicker */}
             <Card>
-              <h3 style={{ fontSize: '1.05rem', color: '#1b4332', marginBottom: '14px', fontWeight: 600 }}>Riwayat Kehadiran Harian</h3>
-              {attendance.length === 0 ? (
+              <h3 style={{ fontSize: '1.05rem', color: '#1b4332', marginBottom: '12px', fontWeight: 600 }}>Cari Kehadiran Siswa</h3>
+              <div className="form-group" style={{ marginBottom: searchResult ? '12px' : '0' }}>
+                <label className="form-label" htmlFor="search-date">Pilih Tanggal</label>
+                <input 
+                  type="date" 
+                  id="search-date"
+                  className="form-input" 
+                  value={searchDate}
+                  onChange={handleSearchDate}
+                />
+              </div>
+
+              {searchResult && (
+                <div style={{
+                  background: '#f8f9fa',
+                  padding: '12px',
+                  borderRadius: '10px',
+                  borderLeft: `4px solid ${
+                    searchResult.status === 'Hadir' ? 'var(--color-hadir)' :
+                    searchResult.status === 'Sakit' ? 'var(--color-sakit)' :
+                    searchResult.status === 'Izin' ? 'var(--color-izin)' :
+                    searchResult.status === 'Alpa' ? 'var(--color-alpa)' : '#6c757d'
+                  }`,
+                  marginTop: '10px'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                    <span style={{ fontWeight: 600, fontSize: '0.85rem' }}>
+                      {new Date(searchResult.tanggal).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                    </span>
+                    <span className={`badge-status badge-${searchResult.status.toLowerCase().replace(/\s+/g, '')}`}>
+                      {searchResult.status}
+                    </span>
+                  </div>
+                  <p style={{ fontSize: '0.8rem', color: '#555', margin: 0 }}><strong>Info:</strong> {searchResult.keterangan}</p>
+                </div>
+              )}
+            </Card>
+
+            <Card>
+              <h3 style={{ fontSize: '1.05rem', color: '#1b4332', marginBottom: '14px', fontWeight: 600 }}>Riwayat Bulan Ini</h3>
+              {calendarDays.length === 0 ? (
                 <p style={{ color: '#6c757d', fontSize: '0.85rem', fontStyle: 'italic', textAlign: 'center', padding: '15px 0' }}>
                   Belum ada riwayat absensi tercatat.
                 </p>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '350px', overflowY: 'auto' }}>
-                  {attendance.map((a) => (
-                    <div 
-                      key={a.id} 
-                      style={{ 
-                        display: 'flex', 
-                        justifyContent: 'space-between', 
-                        alignItems: 'center', 
-                        padding: '12px', 
-                        borderBottom: '1px solid rgba(0,0,0,0.04)',
-                        fontSize: '0.88rem'
-                      }}
-                    >
-                      <div>
-                        <div style={{ fontWeight: 600 }}>{new Date(a.tanggal).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' })}</div>
-                        {a.keterangan && <div style={{ fontSize: '0.75rem', color: '#6c757d', marginTop: '2px' }}>Ket: {a.keterangan}</div>}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '300px', overflowY: 'auto' }}>
+                  {calendarDays
+                    .filter(d => d.type === 'record' || d.type === 'holiday') // tampilkan hari sekolah & hari libur
+                    .map((day, idx) => (
+                      <div 
+                        key={idx} 
+                        style={{ 
+                          display: 'flex', 
+                          justifyContent: 'space-between', 
+                          alignItems: 'center', 
+                          padding: '10px 12px', 
+                          background: day.type === 'holiday' ? 'rgba(0,0,0,0.02)' : 'white',
+                          borderBottom: '1px solid rgba(0,0,0,0.04)',
+                          fontSize: '0.85rem'
+                        }}
+                      >
+                        <div>
+                          <div style={{ fontWeight: 600 }}>
+                            {new Date(day.tanggal).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
+                          </div>
+                          {day.keterangan && <div style={{ fontSize: '0.75rem', color: '#6c757d', marginTop: '2px' }}>{day.keterangan}</div>}
+                        </div>
+                        <span className={`badge-status ${
+                          day.status === 'Hadir' ? 'badge-hadir' :
+                          day.status === 'Sakit' ? 'badge-sakit' :
+                          day.status === 'Izin' ? 'badge-izin' :
+                          day.status === 'Alpa' ? 'badge-alpa' : 'badge-alpa'
+                        }`} style={{ 
+                          backgroundColor: day.status === 'Libur' ? '#e9ecef' : undefined,
+                          color: day.status === 'Libur' ? '#495057' : undefined
+                        }}>
+                          {day.status}
+                        </span>
                       </div>
-                      <span className={`badge-status badge-${a.status.toLowerCase()}`}>
-                        {a.status}
-                      </span>
-                    </div>
-                  ))}
+                    ))}
                 </div>
               )}
             </Card>
@@ -516,7 +769,7 @@ export const ParentDashboard = ({ student, onLogout }) => {
           </>
         )}
 
-        {/* 5. Fitur Penunjang: Share & WA */}
+        {/* Share & WA */}
         <Card style={{ marginTop: '10px', background: 'linear-gradient(135deg, #e8f5e9, #c8e6c9)' }}>
           <h3 style={{ fontSize: '1rem', color: '#1b4332', marginBottom: '8px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Share2 size={18} /> Bagikan Laporan Siswa
@@ -529,7 +782,7 @@ export const ParentDashboard = ({ student, onLogout }) => {
             variant={copySuccess ? 'accent' : 'primary'}
             style={{ padding: '10px 16px', fontSize: '0.85rem' }}
           >
-            {copySuccess ? '✓ Link Berhasil Disalin!' : 'Copy Link Laporan Publik'}
+            {copySuccess ? '✓ Link Laporan Publik Disalin!' : 'Copy Link Laporan Publik'}
           </Button>
         </Card>
 
@@ -546,7 +799,38 @@ export const ParentDashboard = ({ student, onLogout }) => {
         )}
       </div>
 
-      {/* Modal Detail Stempel */}
+      {/* MODAL 1: Detail Ketidakhadiran (Sakit, Izin, Alpa) */}
+      <Modal 
+        isOpen={absenceDetailModal.isOpen} 
+        onClose={() => setAbsenceDetailModal({ isOpen: false, status: '', list: [] })} 
+        title={`Riwayat Ketidakhadiran: ${absenceDetailModal.status}`}
+      >
+        <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+          {absenceDetailModal.list.length === 0 ? (
+            <p style={{ color: '#888', fontStyle: 'italic', fontSize: '0.9rem', textAlign: 'center', padding: '10px' }}>
+              Tidak ada catatan untuk bulan ini.
+            </p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {absenceDetailModal.list.map((day, idx) => (
+                <div key={idx} style={{ padding: '12px', background: '#f8f9fa', borderRadius: '8px', borderLeft: `4px solid ${
+                  absenceDetailModal.status === 'Sakit' ? 'var(--color-sakit)' :
+                  absenceDetailModal.status === 'Izin' ? 'var(--color-izin)' : 'var(--color-alpa)'
+                }` }}>
+                  <div style={{ fontWeight: 600, fontSize: '0.9rem', color: '#1b4332', marginBottom: '4px' }}>
+                    {new Date(day.tanggal).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                  </div>
+                  <p style={{ margin: 0, fontSize: '0.82rem', color: '#555' }}>
+                    <strong>Keterangan:</strong> {day.keterangan || 'Tidak ada keterangan tambahan.'}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </Modal>
+
+      {/* MODAL 2: Detail Stempel */}
       <Modal 
         isOpen={!!selectedBadge} 
         onClose={() => setSelectedBadge(null)} 
