@@ -3,7 +3,7 @@ import { supabase } from '../supabaseClient';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import { Modal } from '../components/Modal';
-import { Calendar, UserCheck, Users, Award, Star, Megaphone, LogOut, Edit, Trash2, Plus, MessageCircle, RefreshCw, Search, ShieldAlert, PlusCircle } from 'lucide-react';
+import { Calendar, UserCheck, Users, Award, Star, Megaphone, LogOut, Edit, Trash2, Plus, MessageCircle, RefreshCw, Search, ShieldAlert, PlusCircle, Upload, Smile } from 'lucide-react';
 
 export const AdminDashboard = ({ onLogout }) => {
   const [activeTab, setActiveTab] = useState('attendance'); // 'attendance', 'students', 'badges', 'achievements', 'announcements'
@@ -39,12 +39,15 @@ export const AdminDashboard = ({ onLogout }) => {
   const [selectedBadgeId, setSelectedBadgeId] = useState('');
   const [badgeNote, setBadgeNote] = useState('');
   const [givingBadge, setGivingBadge] = useState(false);
+  const [activeBadgeGroupFilter, setActiveBadgeGroupFilter] = useState('Semua');
 
   // --- State Tambah Katalog Stempel Baru ---
   const [isAddingNewBadgeCatalog, setIsAddingNewBadgeCatalog] = useState(false);
+  const [iconMode, setIconMode] = useState('emoji'); // 'emoji' | 'upload'
   const [newBadgeForm, setNewBadgeForm] = useState({
-    nama_stempel: '', simbol: '⭐', deskripsi: '', grup_stempel: 'Apresiasi'
+    nama_stempel: '', simbol: '⭐', gambar_url: '', deskripsi: '', grup_stempel: 'Apresiasi', custom_grup_stempel: ''
   });
+  const [uploadError, setUploadError] = useState('');
   const [savingNewBadgeCatalog, setSavingNewBadgeCatalog] = useState(false);
 
   // --- State Catatan Prestasi ---
@@ -299,11 +302,56 @@ export const AdminDashboard = ({ onLogout }) => {
     }
   };
 
-  // Aksi menambahkan stempel baru ke katalog utama (master_badge)
+  // Fungsi membaca file gambar kustom dan merubah ke Base64 (Maksimal 50 KB)
+  const handleImageUpload = (e) => {
+    const file = e.target.files[0];
+    setUploadError('');
+    if (!file) return;
+
+    // Validasi Ukuran File (50 KB = 50 * 1024 Bytes)
+    if (file.size > 50 * 1024) {
+      setUploadError('Ukuran berkas melebihi batas 50 KB! Silakan kompres gambar atau pilih gambar lain.');
+      e.target.value = null; // reset input
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      setNewBadgeForm(prev => ({
+        ...prev,
+        gambar_url: reader.result, // base64 string
+        simbol: '' // hapus emoji simbol jika menggunakan gambar kustom
+      }));
+    };
+    reader.onerror = () => {
+      setUploadError('Gagal membaca berkas gambar.');
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleAddNewBadgeCatalog = async (e) => {
     e.preventDefault();
-    if (!newBadgeForm.nama_stempel || !newBadgeForm.simbol || !newBadgeForm.deskripsi) {
-      alert('Lengkapi seluruh field stempel baru.');
+    if (!newBadgeForm.nama_stempel || !newBadgeForm.deskripsi) {
+      alert('Lengkapi nama stempel dan penjelasan.');
+      return;
+    }
+
+    if (iconMode === 'emoji' && !newBadgeForm.simbol) {
+      alert('Masukkan simbol emoji stempel.');
+      return;
+    }
+
+    if (iconMode === 'upload' && !newBadgeForm.gambar_url) {
+      alert('Pilih file gambar kustom terlebih dahulu.');
+      return;
+    }
+
+    const groupToSave = newBadgeForm.grup_stempel === 'NEW_GROUP' 
+      ? newBadgeForm.custom_grup_stempel.trim() 
+      : newBadgeForm.grup_stempel;
+
+    if (!groupToSave) {
+      alert('Tulis nama grup stempel baru.');
       return;
     }
 
@@ -313,17 +361,19 @@ export const AdminDashboard = ({ onLogout }) => {
         .from('master_badge')
         .insert({
           nama_stempel: newBadgeForm.nama_stempel,
-          simbol: newBadgeForm.simbol,
+          simbol: iconMode === 'emoji' ? newBadgeForm.simbol : null,
+          gambar_url: iconMode === 'upload' ? newBadgeForm.gambar_url : null,
           deskripsi: newBadgeForm.deskripsi,
-          grup_stempel: newBadgeForm.grup_stempel
+          grup_stempel: groupToSave
         });
 
       if (error) throw error;
       alert('Stempel baru berhasil ditambahkan ke katalog!');
       
       // Reset form & katalog ulang
-      setNewBadgeForm({ nama_stempel: '', simbol: '⭐', deskripsi: '', grup_stempel: 'Apresiasi' });
+      setNewBadgeForm({ nama_stempel: '', simbol: '⭐', gambar_url: '', deskripsi: '', grup_stempel: 'Apresiasi', custom_grup_stempel: '' });
       setIsAddingNewBadgeCatalog(false);
+      setIconMode('emoji');
       
       // Refresh katalog stempel di AdminDashboard
       const { data: bdgData } = await supabase.from('master_badge').select('*');
@@ -402,7 +452,6 @@ export const AdminDashboard = ({ onLogout }) => {
 
     setSavingAnnouncement(true);
     try {
-      // Jika kategori 'Sangat Penting', hapus pengumuman 'Sangat Penting' lama terlebih dahulu agar hanya ada satu
       if (announcementForm.kategori === 'Sangat Penting') {
         console.log("Menghapus pengumuman Sangat Penting yang sudah ada...");
         const { error: delError } = await supabase
@@ -476,6 +525,14 @@ export const AdminDashboard = ({ onLogout }) => {
   const filteredStudentsForList = students.filter(s => 
     s.nama_siswa.toLowerCase().includes(studentSearchQuery.toLowerCase())
   );
+
+  // Ambil daftar grup stempel unik dari master_badge untuk filtering di panel pemberian stempel
+  const dbBadgeGroups = Array.from(new Set(masterBadges.map(b => b.grup_stempel).filter(Boolean)));
+
+  // Filter katalog stempel yang akan ditampilkan untuk dipilih guru
+  const filteredMasterBadgesForGiving = activeBadgeGroupFilter === 'Semua'
+    ? masterBadges
+    : masterBadges.filter(b => b.grup_stempel === activeBadgeGroupFilter);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', paddingBottom: '40px' }}>
@@ -827,10 +884,10 @@ export const AdminDashboard = ({ onLogout }) => {
           </>
         )}
 
-        {/* TAB 3: BERI STEMPEL & TAMBAH KATALOG STEMPEL */}
+        {/* TAB 3: BERI STEMPEL & TAMBAH STEMPEL */}
         {activeTab === 'badges' && (
           <>
-            {/* Form 1: Tambah Stempel Baru ke Katalog */}
+            {/* Form 1: Tambah Stempel Baru ke Katalog (Mendukung Gambar Kustom Maks 50 KB & Grup Dinamis) */}
             <Card style={{ borderLeft: '4px solid var(--accent)' }}>
               <div 
                 onClick={() => setIsAddingNewBadgeCatalog(!isAddingNewBadgeCatalog)}
@@ -851,26 +908,105 @@ export const AdminDashboard = ({ onLogout }) => {
                       type="text" 
                       id="badge-name"
                       className="form-input" 
-                      placeholder="Misal: Sangat Disiplin / Hafalan Lancar"
+                      placeholder="Misal: Hafalan Lancar / Kerapian Terbaik"
                       value={newBadgeForm.nama_stempel}
                       onChange={(e) => setNewBadgeForm(prev => ({ ...prev, nama_stempel: e.target.value }))}
                       required
                     />
                   </div>
 
+                  {/* Jenis Simbol (Emoji vs Upload Gambar) */}
                   <div className="form-group">
-                    <label className="form-label" htmlFor="badge-emoji-input">Simbol Emoji</label>
-                    <input 
-                      type="text" 
-                      id="badge-emoji-input"
-                      className="form-input" 
-                      style={{ fontSize: '1.2rem', width: '80px', textAlign: 'center' }}
-                      value={newBadgeForm.simbol}
-                      onChange={(e) => setNewBadgeForm(prev => ({ ...prev, simbol: e.target.value }))}
-                      required
-                    />
+                    <label className="form-label">Jenis Simbol Stempel</label>
+                    <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
+                      <button
+                        type="button"
+                        onClick={() => setIconMode('emoji')}
+                        style={{
+                          flex: 1,
+                          padding: '10px',
+                          borderRadius: '8px',
+                          border: iconMode === 'emoji' ? '2px solid var(--accent)' : '1px solid #ccc',
+                          background: iconMode === 'emoji' ? 'var(--accent-light)' : 'white',
+                          color: iconMode === 'emoji' ? 'var(--accent-dark)' : '#666',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '6px',
+                          fontWeight: 600,
+                          fontSize: '0.85rem'
+                        }}
+                      >
+                        <Smile size={16} />
+                        Emoji Simbol
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIconMode('upload')}
+                        style={{
+                          flex: 1,
+                          padding: '10px',
+                          borderRadius: '8px',
+                          border: iconMode === 'upload' ? '2px solid var(--accent)' : '1px solid #ccc',
+                          background: iconMode === 'upload' ? 'var(--accent-light)' : 'white',
+                          color: iconMode === 'upload' ? 'var(--accent-dark)' : '#666',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '6px',
+                          fontWeight: 600,
+                          fontSize: '0.85rem'
+                        }}
+                      >
+                        <Upload size={16} />
+                        Upload Gambar
+                      </button>
+                    </div>
                   </div>
 
+                  {iconMode === 'emoji' ? (
+                    <div className="form-group">
+                      <label className="form-label" htmlFor="badge-emoji-input">Simbol Emoji</label>
+                      <input 
+                        type="text" 
+                        id="badge-emoji-input"
+                        className="form-input" 
+                        style={{ fontSize: '1.2rem', width: '80px', textAlign: 'center' }}
+                        value={newBadgeForm.simbol}
+                        onChange={(e) => setNewBadgeForm(prev => ({ ...prev, simbol: e.target.value }))}
+                      />
+                    </div>
+                  ) : (
+                    <div className="form-group">
+                      <label className="form-label" htmlFor="badge-upload-file">Pilih Gambar Stempel (Maks 50 KB)</label>
+                      <input 
+                        type="file" 
+                        id="badge-upload-file"
+                        accept="image/*"
+                        onChange={handleImageUpload}
+                        style={{ display: 'block', fontSize: '0.85rem', width: '100%', marginTop: '6px' }}
+                      />
+                      {newBadgeForm.gambar_url && (
+                        <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontSize: '0.78rem', color: '#2d6a4f', fontWeight: 600 }}>Pratinjau:</span>
+                          <img 
+                            src={newBadgeForm.gambar_url} 
+                            alt="Preview stempel kustom" 
+                            style={{ width: '40px', height: '40px', objectFit: 'contain', borderRadius: '50%', border: '1px solid #ccc' }} 
+                          />
+                        </div>
+                      )}
+                      {uploadError && (
+                        <p style={{ fontSize: '0.75rem', color: 'var(--color-alpa)', fontWeight: 500, marginTop: '4px' }}>
+                          ❌ {uploadError}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Grup Stempel dengan Opsi Tambah Dinamis */}
                   <div className="form-group">
                     <label className="form-label" htmlFor="badge-group">Grup Stempel</label>
                     <select 
@@ -882,8 +1018,27 @@ export const AdminDashboard = ({ onLogout }) => {
                       <option value="Apresiasi">Apresiasi</option>
                       <option value="Disiplin">Disiplin</option>
                       <option value="Evaluasi">Evaluasi</option>
+                      {dbBadgeGroups.filter(g => g !== 'Apresiasi' && g !== 'Disiplin' && g !== 'Evaluasi').map(g => (
+                        <option key={g} value={g}>{g}</option>
+                      ))}
+                      <option value="NEW_GROUP">+ Tambah Grup Baru...</option>
                     </select>
                   </div>
+
+                  {newBadgeForm.grup_stempel === 'NEW_GROUP' && (
+                    <div className="form-group">
+                      <label className="form-label" htmlFor="custom-group-name">Nama Grup Stempel Baru</label>
+                      <input 
+                        type="text" 
+                        id="custom-group-name"
+                        className="form-input" 
+                        placeholder="Misal: Hafalan Al-Qur'an / Kebersihan"
+                        value={newBadgeForm.custom_grup_stempel}
+                        onChange={(e) => setNewBadgeForm(prev => ({ ...prev, custom_grup_stempel: e.target.value }))}
+                        required
+                      />
+                    </div>
+                  )}
 
                   <div className="form-group">
                     <label className="form-label" htmlFor="badge-desc">Penjelasan / Deskripsi</label>
@@ -905,9 +1060,10 @@ export const AdminDashboard = ({ onLogout }) => {
               )}
             </Card>
 
-            {/* Form 2: Berikan Stempel Apresiasi */}
+            {/* Form 2: Berikan Stempel Apresiasi (Dengan filter/sorting grup tag) */}
             <Card>
-              <h3 style={{ fontSize: '1.05rem', color: '#1b4332', marginBottom: '16px', fontWeight: 600 }}>Berikan Stempel Apresiasi</h3>
+              <h3 style={{ fontSize: '1.05rem', color: '#1b4332', marginBottom: '14px', fontWeight: 600 }}>Berikan Stempel Apresiasi</h3>
+              
               <form onSubmit={handleGiveBadge}>
                 <div className="form-group">
                   <label className="form-label" htmlFor="badge-student">Pilih Siswa</label>
@@ -925,37 +1081,79 @@ export const AdminDashboard = ({ onLogout }) => {
                   </select>
                 </div>
 
+                {/* Filter Tag Grup Stempel */}
+                <div className="form-group">
+                  <label className="form-label">Saring Grup Stempel</label>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '6px', marginBottom: '12px' }}>
+                    {['Semua', ...dbBadgeGroups].map((g) => (
+                      <button
+                        key={g}
+                        type="button"
+                        onClick={() => setActiveBadgeGroupFilter(g)}
+                        style={{
+                          padding: '5px 12px',
+                          borderRadius: '16px',
+                          border: activeBadgeGroupFilter === g ? '1.5px solid var(--accent)' : '1px solid rgba(0,0,0,0.1)',
+                          background: activeBadgeGroupFilter === g ? 'var(--accent-light)' : 'white',
+                          color: activeBadgeGroupFilter === g ? 'var(--accent-dark)' : '#6c757d',
+                          fontSize: '0.75rem',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          transition: 'all 0.2s'
+                        }}
+                      >
+                        {g}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 <div className="form-group">
                   <label className="form-label">Pilih Stempel (Medali)</label>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginTop: '6px' }}>
-                    {masterBadges.map(b => {
-                      const isSelected = selectedBadgeId === b.id;
-                      return (
-                        <button
-                          key={b.id}
-                          type="button"
-                          onClick={() => setSelectedBadgeId(b.id)}
-                          style={{
-                            background: isSelected ? 'var(--accent-light)' : 'white',
-                            border: isSelected ? '2px solid var(--accent)' : '1.5px solid rgba(0,0,0,0.1)',
-                            borderRadius: '12px',
-                            padding: '8px 12px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            cursor: 'pointer',
-                            fontFamily: 'inherit',
-                            fontSize: '0.85rem',
-                            fontWeight: 500,
-                            boxShadow: isSelected ? 'var(--shadow-sm)' : 'none'
-                          }}
-                        >
-                          <span style={{ fontSize: '1.2rem' }}>{b.simbol}</span>
-                          <span>{b.nama_stempel}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
+                  
+                  {filteredMasterBadgesForGiving.length === 0 ? (
+                    <p style={{ color: '#888', fontStyle: 'italic', fontSize: '0.8rem', padding: '10px 0' }}>
+                      Tidak ada stempel dalam grup "{activeBadgeGroupFilter}".
+                    </p>
+                  ) : (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginTop: '6px' }}>
+                      {filteredMasterBadgesForGiving.map(b => {
+                        const isSelected = selectedBadgeId === b.id;
+                        return (
+                          <button
+                            key={b.id}
+                            type="button"
+                            onClick={() => setSelectedBadgeId(b.id)}
+                            style={{
+                              background: isSelected ? 'var(--accent-light)' : 'white',
+                              border: isSelected ? '2px solid var(--accent)' : '1.5px solid rgba(0,0,0,0.1)',
+                              borderRadius: '12px',
+                              padding: '8px 12px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              cursor: 'pointer',
+                              fontFamily: 'inherit',
+                              fontSize: '0.85rem',
+                              fontWeight: 500,
+                              boxShadow: isSelected ? 'var(--shadow-sm)' : 'none'
+                            }}
+                          >
+                            {b.gambar_url ? (
+                              <img 
+                                src={b.gambar_url} 
+                                alt={b.nama_stempel} 
+                                style={{ width: '22px', height: '22px', objectFit: 'contain', borderRadius: '50%' }} 
+                              />
+                            ) : (
+                              <span style={{ fontSize: '1.2rem' }}>{b.simbol || '⭐'}</span>
+                            )}
+                            <span>{b.nama_stempel}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 <div className="form-group" style={{ marginBottom: '20px' }}>
@@ -1043,7 +1241,7 @@ export const AdminDashboard = ({ onLogout }) => {
           </Card>
         )}
 
-        {/* TAB 5: PENGUMUMAN (DENGAN KATEGORI SANGAT PENTING) */}
+        {/* TAB 5: PENGUMUMAN */}
         {activeTab === 'announcements' && (
           <>
             <Card>

@@ -27,6 +27,9 @@ export const PublicReport = () => {
   const [searchDate, setSearchDate] = useState('');
   const [searchResult, setSearchResult] = useState(null);
 
+  // --- State Filter Kategori Stempel ---
+  const [selectedBadgeFilter, setSelectedBadgeFilter] = useState('Semua');
+
   // --- State Modal Detail Stempel Terkelompok ---
   const [selectedBadgeGroup, setSelectedBadgeGroup] = useState(null);
 
@@ -285,6 +288,12 @@ export const PublicReport = () => {
 
   const groupedBadges = getGroupedBadges();
 
+  const studentBadgeGroups = Array.from(new Set(badges.map(b => b.master_badge?.grup_stempel).filter(Boolean)));
+
+  const filteredGroupedBadges = selectedBadgeFilter === 'Semua' 
+    ? groupedBadges 
+    : groupedBadges.filter(g => g.master.grup_stempel === selectedBadgeFilter);
+
   const namaBulan = [
     'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
     'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
@@ -319,7 +328,7 @@ export const PublicReport = () => {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', paddingBottom: '30px' }}>
       
-      {/* Header Reorganization: Left (Title & Student Name), Right (WA Button) */}
+      {/* Header Reorganization: Left (Title & Student Name), Right (WA Button without extra text) */}
       <header>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', position: 'relative', zIndex: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -341,23 +350,20 @@ export const PublicReport = () => {
               style={{
                 background: '#25d366',
                 color: 'white',
-                padding: '6px 12px',
-                borderRadius: '10px',
+                padding: '10px 14px',
+                borderRadius: '12px',
                 textDecoration: 'none',
-                display: 'flex',
-                flexDirection: 'column',
+                display: 'inline-flex',
                 alignItems: 'center',
-                justifyContent: 'center',
+                gap: '6px',
                 boxShadow: '0 3px 6px rgba(0,0,0,0.1)',
-                textAlign: 'center',
-                minWidth: '110px'
+                fontWeight: 600,
+                fontSize: '0.82rem',
+                whiteSpace: 'nowrap'
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 700, fontSize: '0.78rem' }}>
-                <MessageCircle size={14} />
-                Hubungi WA
-              </div>
-              <span style={{ fontSize: '0.62rem', fontWeight: 500, opacity: 0.9 }}>{student.kelas.nama_wali}</span>
+              <MessageCircle size={16} />
+              Hubungi Wali Kelas
             </a>
           )}
         </div>
@@ -532,26 +538,72 @@ export const PublicReport = () => {
           )}
         </Card>
 
-        {/* 4. Koleksi Stempel Apresiasi Terkelompok */}
+        {/* 4. Koleksi Stempel Apresiasi Terkelompok dengan Filter */}
         <Card>
-          <h3 style={{ fontSize: '1.1rem', color: '#1b4332', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <h3 style={{ fontSize: '1.1rem', color: '#1b4332', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Award size={20} /> Lencana Stempel ({badges.length})
           </h3>
-          {groupedBadges.length === 0 ? (
+          
+          {studentBadgeGroups.length > 0 && (
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '14px' }}>
+              {['Semua', ...studentBadgeGroups].map((g) => (
+                <button
+                  key={g}
+                  onClick={() => setSelectedBadgeFilter(g)}
+                  style={{
+                    padding: '5px 12px',
+                    borderRadius: '16px',
+                    border: selectedBadgeFilter === g ? '1.5px solid var(--accent)' : '1px solid rgba(0,0,0,0.1)',
+                    background: selectedBadgeFilter === g ? 'var(--accent-light)' : 'white',
+                    color: selectedBadgeFilter === g ? 'var(--accent-dark)' : '#6c757d',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  {g}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {filteredGroupedBadges.length === 0 ? (
             <p style={{ color: '#6c757d', fontSize: '0.85rem', fontStyle: 'italic', textAlign: 'center', padding: '15px 0' }}>
-              Belum ada stempel apresiasi yang tercatat.
+              {badges.length === 0 ? 'Belum ada stempel apresiasi yang tercatat.' : `Tidak ada stempel untuk grup "${selectedBadgeFilter}".`}
             </p>
           ) : (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', margin: '10px 0' }}>
-              {groupedBadges.map((item) => (
+              {filteredGroupedBadges.map((item) => (
                 <div 
                   key={item.master.id} 
                   className="badge-emoji"
                   onClick={() => setSelectedBadgeGroup(item)}
                   title={item.master.nama_stempel}
-                  style={{ position: 'relative', width: '54px', height: '54px', fontSize: '26px' }}
+                  style={{ 
+                    position: 'relative', 
+                    width: '54px', 
+                    height: '54px', 
+                    fontSize: '26px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: '#fcfcfc',
+                    border: '1.5px solid rgba(0,0,0,0.06)',
+                    borderRadius: '50%',
+                    cursor: 'pointer',
+                    boxShadow: 'var(--shadow-sm)'
+                  }}
                 >
-                  {item.master.simbol || '⭐'}
+                  {item.master.gambar_url ? (
+                    <img 
+                      src={item.master.gambar_url} 
+                      alt={item.master.nama_stempel} 
+                      style={{ width: '40px', height: '40px', objectFit: 'contain', borderRadius: '50%' }} 
+                    />
+                  ) : (
+                    item.master.simbol || '⭐'
+                  )}
 
                   {item.instances.length > 1 && (
                     <div style={{
