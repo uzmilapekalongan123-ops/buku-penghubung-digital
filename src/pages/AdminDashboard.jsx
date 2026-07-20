@@ -361,7 +361,7 @@ export const AdminDashboard = ({ onLogout }) => {
         .from('master_badge')
         .insert({
           nama_stempel: newBadgeForm.nama_stempel,
-          simbol: iconMode === 'emoji' ? newBadgeForm.simbol : null,
+          simbol: iconMode === 'emoji' ? newBadgeForm.simbol : '🖼️',
           gambar_url: iconMode === 'upload' ? newBadgeForm.gambar_url : null,
           deskripsi: newBadgeForm.deskripsi,
           grup_stempel: groupToSave
