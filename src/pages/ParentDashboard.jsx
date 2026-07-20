@@ -1,0 +1,582 @@
+import React, { useState, useEffect } from 'react';
+import { supabase } from '../supabaseClient';
+import { Card } from '../components/Card';
+import { Button } from '../components/Button';
+import { Modal } from '../components/Modal';
+import { Calendar, Award, MessageCircle, Star, Share2, LogOut, Send, AlertTriangle } from 'lucide-react';
+
+export const ParentDashboard = ({ student, onLogout }) => {
+  const [activeTab, setActiveTab] = useState('attendance'); // 'attendance', 'badges', 'announcements'
+  const [attendance, setAttendance] = useState([]);
+  const [badges, setBadges] = useState([]);
+  const [achievements, setAchievements] = useState([]);
+  const [announcements, setAnnouncements] = useState([]);
+  const [comments, setComments] = useState({}); // { announcementId: [comments] }
+  const [newComments, setNewComments] = useState({}); // { announcementId: 'text' }
+  const [commentErrors, setCommentErrors] = useState({}); // { announcementId: 'error msg' }
+  const [loading, setLoading] = useState(true);
+  const [submittingComment, setSubmittingComment] = useState({});
+  const [copySuccess, setCopySuccess] = useState(false);
+  
+  // Modal State untuk detail stempel
+  const [selectedBadge, setSelectedBadge] = useState(null);
+
+  useEffect(() => {
+    fetchData();
+  }, [student.id]);
+
+  const fetchData = async () => {
+    try {
+      setLoading(true);
+      
+      // 1. Ambil data absensi
+      const { data: attData } = await supabase
+        .from('absensi')
+        .select('*')
+        .eq('siswa_id', student.id)
+        .order('tanggal', { ascending: false });
+      setAttendance(attData || []);
+
+      // 2. Ambil stempel/badge
+      const { data: bdgData } = await supabase
+        .from('catatan_stempel')
+        .select('*, master_badge(*)')
+        .eq('siswa_id', student.id)
+        .order('tanggal_waktu', { ascending: false });
+      setBadges(bdgData || []);
+
+      // 3. Ambil prestasi
+      const { data: prsData } = await supabase
+        .from('prestasi')
+        .select('*')
+        .eq('siswa_id', student.id)
+        .order('tanggal', { ascending: false });
+      setAchievements(prsData || []);
+
+      // 4. Ambil pengumuman kelas & umum
+      const { data: annData } = await supabase
+        .from('pengumuman')
+        .select('*')
+        .or(`kelas_id.eq.${student.kelas_id},kelas_id.is.null`)
+        .order('tanggal', { ascending: false });
+      setAnnouncements(annData || []);
+
+      // 5. Ambil semua komentar untuk pengumuman yang tampil
+      if (annData && annData.length > 0) {
+        const annIds = annData.map(a => a.id);
+        const { data: cmtData } = await supabase
+          .from('komentar')
+          .select('*')
+          .in('pengumuman_id', annIds)
+          .order('created_at', { ascending: true });
+        
+        // Kelompokkan komentar berdasarkan pengumuman_id
+        const grouped = {};
+        cmtData?.forEach(c => {
+          if (!grouped[c.pengumuman_id]) {
+            grouped[c.pengumuman_id] = [];
+          }
+          grouped[c.pengumuman_id].push(c);
+        });
+        setComments(grouped);
+      }
+
+    } catch (err) {
+      console.error('Error fetching parent dashboard data:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getWordCount = (text) => {
+    return text.trim().split(/\s+/).filter(Boolean).length;
+  };
+
+  const handleCommentChange = (announcementId, text) => {
+    setNewComments(prev => ({ ...prev, [announcementId]: text }));
+    
+    const words = getWordCount(text);
+    if (words > 10) {
+      setCommentErrors(prev => ({ 
+        ...prev, 
+        [announcementId]: `Komentar melebihi batas! (${words}/10 kata)` 
+      }));
+    } else {
+      setCommentErrors(prev => ({ ...prev, [announcementId]: '' }));
+    }
+  };
+
+  const handleSendComment = async (announcementId) => {
+    const text = newComments[announcementId] || '';
+    const words = getWordCount(text);
+    
+    if (words === 0) return;
+    if (words > 10) {
+      setCommentErrors(prev => ({ ...prev, [announcementId]: 'Komentar tidak boleh lebih dari 10 kata!' }));
+      return;
+    }
+
+    setSubmittingComment(prev => ({ ...prev, [announcementId]: true }));
+
+    try {
+      const { data, error } = await supabase
+        .from('komentar')
+        .insert({
+          pengumuman_id: announcementId,
+          nama_user: `Wali dari ${student.nama_siswa}`,
+          komentar: text.trim()
+        })
+        .select()
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      // Update state komentar lokal
+      setComments(prev => {
+        const currentList = prev[announcementId] || [];
+        return {
+          ...prev,
+          [announcementId]: [...currentList, data]
+        };
+      });
+
+      // Reset form input komentar
+      setNewComments(prev => ({ ...prev, [announcementId]: '' }));
+
+    } catch (err) {
+      console.error('Gagal mengirim komentar:', err);
+      setCommentErrors(prev => ({ ...prev, [announcementId]: 'Gagal mengirim komentar. Coba lagi.' }));
+    } finally {
+      setSubmittingComment(prev => ({ ...prev, [announcementId]: false }));
+    }
+  };
+
+  const handleCopyLink = () => {
+    // Generate public link
+    const publicLink = `${window.location.origin}${window.location.pathname}?token=${student.token}`;
+    
+    navigator.clipboard.writeText(publicLink).then(() => {
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 3000);
+    }).catch(err => {
+      console.error('Failed to copy public link:', err);
+    });
+  };
+
+  const stats = (() => {
+    if (!attendance.length) return { hadir: 0, sakit: 0, izin: 0, alpa: 0, persentase: 100 };
+    const total = attendance.length;
+    const hadir = attendance.filter(a => a.status === 'Hadir').length;
+    const sakit = attendance.filter(a => a.status === 'Sakit').length;
+    const izin = attendance.filter(a => a.status === 'Izin').length;
+    const alpa = total - hadir - sakit - izin;
+    const persentase = Math.round((hadir / total) * 100);
+    return { hadir, sakit, izin, alpa, persentase };
+  })();
+
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', gap: '12px' }}>
+        <div style={{ width: '40px', height: '40px', border: '4px solid #e8f5e9', borderTopColor: '#2d6a4f', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+        <p style={{ color: '#2d6a4f', fontWeight: 500 }}>Memuat Laporan Ananda...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', paddingBottom: '40px' }}>
+      
+      {/* Top Navbar */}
+      <header>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+          <div>
+            <h2 style={{ fontSize: '1.4rem', fontWeight: 700, margin: 0 }}>Buku Penghubung</h2>
+            <p style={{ opacity: 0.9, fontSize: '0.85rem' }}>{student.kelas?.nama_kelas}</p>
+          </div>
+          <button 
+            onClick={onLogout} 
+            style={{ 
+              background: 'rgba(255,255,255,0.15)', 
+              border: 'none', 
+              color: 'white', 
+              padding: '8px', 
+              borderRadius: '50%', 
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}
+            title="Keluar"
+          >
+            <LogOut size={18} />
+          </button>
+        </div>
+
+        <div style={{ marginTop: '16px', background: 'rgba(255, 255, 255, 0.12)', padding: '12px 16px', borderRadius: '12px', fontSize: '0.9rem' }}>
+          <p><strong>Siswa:</strong> {student.nama_siswa}</p>
+          <p><strong>Orang Tua:</strong> {student.nama_ortu}</p>
+          <p><strong>Wali Kelas:</strong> {student.kelas?.nama_wali}</p>
+        </div>
+      </header>
+
+      {/* Tabs */}
+      <div style={{
+        display: 'flex',
+        background: 'white',
+        borderBottom: '1px solid rgba(0,0,0,0.06)',
+        position: 'sticky',
+        top: 0,
+        zIndex: 100,
+        boxShadow: '0 4px 6px -4px rgba(0,0,0,0.05)'
+      }}>
+        <button
+          onClick={() => setActiveTab('attendance')}
+          style={{
+            flex: 1,
+            padding: '16px 10px',
+            border: 'none',
+            background: 'none',
+            fontFamily: 'inherit',
+            fontWeight: 600,
+            fontSize: '0.85rem',
+            color: activeTab === 'attendance' ? '#2d6a4f' : '#6c757d',
+            borderBottom: activeTab === 'attendance' ? '3px solid #2d6a4f' : '3px solid transparent',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease'
+          }}
+        >
+          <Calendar size={16} style={{ display: 'block', margin: '0 auto 4px auto' }} />
+          Kehadiran
+        </button>
+        <button
+          onClick={() => setActiveTab('badges')}
+          style={{
+            flex: 1,
+            padding: '16px 10px',
+            border: 'none',
+            background: 'none',
+            fontFamily: 'inherit',
+            fontWeight: 600,
+            fontSize: '0.85rem',
+            color: activeTab === 'badges' ? '#2d6a4f' : '#6c757d',
+            borderBottom: activeTab === 'badges' ? '3px solid #2d6a4f' : '3px solid transparent',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease'
+          }}
+        >
+          <Award size={16} style={{ display: 'block', margin: '0 auto 4px auto' }} />
+          Stempel & Prestasi
+        </button>
+        <button
+          onClick={() => setActiveTab('announcements')}
+          style={{
+            flex: 1,
+            padding: '16px 10px',
+            border: 'none',
+            background: 'none',
+            fontFamily: 'inherit',
+            fontWeight: 600,
+            fontSize: '0.85rem',
+            color: activeTab === 'announcements' ? '#2d6a4f' : '#6c757d',
+            borderBottom: activeTab === 'announcements' ? '3px solid #2d6a4f' : '3px solid transparent',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease'
+          }}
+        >
+          <MessageCircle size={16} style={{ display: 'block', margin: '0 auto 4px auto' }} />
+          Pengumuman
+        </button>
+      </div>
+
+      {/* Tab Contents */}
+      <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }} className="fade-in">
+        
+        {/* Tab 1: Kehadiran */}
+        {activeTab === 'attendance' && (
+          <>
+            <Card>
+              <h3 style={{ fontSize: '1.05rem', color: '#1b4332', marginBottom: '14px', fontWeight: 600 }}>Statistik Kehadiran</h3>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-around', margin: '10px 0' }}>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '2.2rem', fontWeight: 700, color: '#2d6a4f' }}>{stats.persentase}%</div>
+                  <div style={{ fontSize: '0.75rem', color: '#6c757d' }}>Kehadiran Murni</div>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.85rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '20px' }}>
+                    <span style={{ color: 'var(--color-hadir)', fontWeight: 600 }}>• Hadir:</span>
+                    <span>{stats.hadir} hari</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '20px' }}>
+                    <span style={{ color: 'var(--color-sakit)', fontWeight: 600 }}>• Sakit:</span>
+                    <span>{stats.sakit} hari</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '20px' }}>
+                    <span style={{ color: 'var(--color-izin)', fontWeight: 600 }}>• Izin:</span>
+                    <span>{stats.izin} hari</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '20px' }}>
+                    <span style={{ color: 'var(--color-alpa)', fontWeight: 600 }}>• Alpa:</span>
+                    <span style={{ fontWeight: stats.alpa > 0 ? 700 : 400 }}>{stats.alpa} hari</span>
+                  </div>
+                </div>
+              </div>
+            </Card>
+
+            <Card>
+              <h3 style={{ fontSize: '1.05rem', color: '#1b4332', marginBottom: '14px', fontWeight: 600 }}>Riwayat Kehadiran Harian</h3>
+              {attendance.length === 0 ? (
+                <p style={{ color: '#6c757d', fontSize: '0.85rem', fontStyle: 'italic', textAlign: 'center', padding: '15px 0' }}>
+                  Belum ada riwayat absensi tercatat.
+                </p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '350px', overflowY: 'auto' }}>
+                  {attendance.map((a) => (
+                    <div 
+                      key={a.id} 
+                      style={{ 
+                        display: 'flex', 
+                        justifyContent: 'space-between', 
+                        alignItems: 'center', 
+                        padding: '12px', 
+                        borderBottom: '1px solid rgba(0,0,0,0.04)',
+                        fontSize: '0.88rem'
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontWeight: 600 }}>{new Date(a.tanggal).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' })}</div>
+                        {a.keterangan && <div style={{ fontSize: '0.75rem', color: '#6c757d', marginTop: '2px' }}>Ket: {a.keterangan}</div>}
+                      </div>
+                      <span className={`badge-status badge-${a.status.toLowerCase()}`}>
+                        {a.status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+          </>
+        )}
+
+        {/* Tab 2: Stempel & Prestasi */}
+        {activeTab === 'badges' && (
+          <>
+            <Card>
+              <h3 style={{ fontSize: '1.05rem', color: '#1b4332', marginBottom: '12px', fontWeight: 600 }}>Koleksi Stempel Apresiasi</h3>
+              {badges.length === 0 ? (
+                <p style={{ color: '#6c757d', fontSize: '0.85rem', fontStyle: 'italic', textAlign: 'center', padding: '15px 0' }}>
+                  Belum ada stempel apresiasi yang diterima ananda.
+                </p>
+              ) : (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', margin: '10px 0' }}>
+                  {badges.map((b) => (
+                    <div 
+                      key={b.id} 
+                      className="badge-emoji"
+                      onClick={() => setSelectedBadge(b.master_badge)}
+                      title={b.master_badge?.nama_stempel}
+                    >
+                      {b.master_badge?.simbol || '⭐'}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <p style={{ fontSize: '0.75rem', color: '#888', fontStyle: 'italic', marginTop: '6px' }}>
+                *Ketuk stempel untuk membaca penjelasan apresiasi guru.
+              </p>
+            </Card>
+
+            <Card>
+              <h3 style={{ fontSize: '1.05rem', color: '#1b4332', marginBottom: '14px', fontWeight: 600 }}>Papan Prestasi</h3>
+              {achievements.length === 0 ? (
+                <p style={{ color: '#6c757d', fontSize: '0.85rem', fontStyle: 'italic', textAlign: 'center', padding: '15px 0' }}>
+                  Belum ada catatan prestasi terdaftar untuk ananda.
+                </p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  {achievements.map((p) => (
+                    <div key={p.id} style={{ borderLeft: '3px solid #d4af37', paddingLeft: '12px' }}>
+                      <div style={{ fontSize: '0.75rem', color: '#888' }}>{new Date(p.tanggal).toLocaleDateString('id-ID', { day: 'numeric', month: 'long' })}</div>
+                      <h4 style={{ margin: '2px 0 4px 0', color: '#1b4332', fontSize: '0.92rem', fontWeight: 600 }}>{p.judul_prestasi}</h4>
+                      <p style={{ fontSize: '0.82rem', color: '#555', margin: 0 }}>{p.deskripsi}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+          </>
+        )}
+
+        {/* Tab 3: Pengumuman & Komentar */}
+        {activeTab === 'announcements' && (
+          <>
+            {announcements.length === 0 ? (
+              <Card>
+                <p style={{ color: '#6c757d', fontSize: '0.85rem', fontStyle: 'italic', textAlign: 'center', padding: '15px 0' }}>
+                  Tidak ada pengumuman kelas saat ini.
+                </p>
+              </Card>
+            ) : (
+              announcements.map((a) => {
+                const words = getWordCount(newComments[a.id] || '');
+                const currentError = commentErrors[a.id];
+                const isTooLong = words > 10;
+                
+                return (
+                  <Card key={a.id}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <span style={{ fontSize: '0.75rem', color: '#888' }}>{new Date(a.tanggal).toLocaleDateString('id-ID', { day: 'numeric', month: 'long' })}</span>
+                      <span style={{ fontSize: '0.72rem', padding: '2px 8px', borderRadius: '4px', background: '#e8f5e9', color: '#2d6a4f', fontWeight: 600 }}>{a.kategori}</span>
+                    </div>
+                    <p style={{ fontSize: '0.88rem', color: '#333', whiteSpace: 'pre-line', marginBottom: '8px' }}>{a.isi}</p>
+                    {a.link_luar && (
+                      <a 
+                        href={a.link_luar} 
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        style={{ fontSize: '0.8rem', color: '#2d6a4f', textDecoration: 'underline', fontWeight: 600 }}
+                      >
+                        🔗 Lihat Foto Kegiatan (Google Drive)
+                      </a>
+                    )}
+
+                    {/* Sektor Komentar */}
+                    <div className="comment-box">
+                      <div className="comment-list">
+                        {(comments[a.id] || []).length === 0 ? (
+                          <span style={{ color: '#888', fontSize: '0.75rem', fontStyle: 'italic' }}>Belum ada tanggapan/komentar.</span>
+                        ) : (
+                          comments[a.id].map((c) => (
+                            <div key={c.id} className="comment-item">
+                              <div className="comment-author">{c.nama_user}</div>
+                              <div style={{ color: '#333', marginTop: '2px' }}>{c.komentar}</div>
+                              <span style={{ fontSize: '0.65rem', color: '#888' }}>
+                                {new Date(c.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </div>
+                          ))
+                        )}
+                      </div>
+
+                      {/* Teks Himbauan */}
+                      <p style={{ fontSize: '0.72rem', color: '#6c757d', marginBottom: '6px', background: '#f8f9fa', padding: '6px', borderRadius: '4px' }}>
+                        💡 <i>Tulis komentar dengan sopan (Maksimal 10 kata).</i>
+                      </p>
+
+                      {/* Input Komentar Baru */}
+                      <div style={{ display: 'flex', gap: '6px', alignItems: 'stretch' }}>
+                        <input
+                          type="text"
+                          className="form-input"
+                          style={{ padding: '8px 12px', fontSize: '0.85rem' }}
+                          placeholder="Tanggapan Anda..."
+                          value={newComments[a.id] || ''}
+                          onChange={(e) => handleCommentChange(a.id, e.target.value)}
+                          disabled={submittingComment[a.id]}
+                        />
+                        <button
+                          onClick={() => handleSendComment(a.id)}
+                          disabled={submittingComment[a.id] || isTooLong || !newComments[a.id]?.trim()}
+                          style={{
+                            background: '#2d6a4f',
+                            border: 'none',
+                            color: 'white',
+                            padding: '0 14px',
+                            borderRadius: '10px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            opacity: (isTooLong || !newComments[a.id]?.trim()) ? 0.5 : 1
+                          }}
+                        >
+                          <Send size={16} />
+                        </button>
+                      </div>
+                      
+                      {/* Counter dan Error Kata */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        {currentError ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <AlertTriangle size={12} color="var(--color-alpa)" />
+                            <span className="comment-limit-warning">{currentError}</span>
+                          </div>
+                        ) : (
+                          <span className="comment-limit-ok">
+                            {newComments[a.id]?.trim() ? `${words}/10 kata` : ''}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </Card>
+                );
+              })
+            )}
+          </>
+        )}
+
+        {/* 5. Fitur Penunjang: Share & WA */}
+        <Card style={{ marginTop: '10px', background: 'linear-gradient(135deg, #e8f5e9, #c8e6c9)' }}>
+          <h3 style={{ fontSize: '1rem', color: '#1b4332', marginBottom: '8px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Share2 size={18} /> Bagikan Laporan Siswa
+          </h3>
+          <p style={{ fontSize: '0.8rem', color: '#2b2d42', marginBottom: '12px', lineHeight: 1.4 }}>
+            Ingin membagikan perkembangan ananda ke keluarga dekat? Copy link di bawah ini. Penerima link tidak perlu login.
+          </p>
+          <Button 
+            onClick={handleCopyLink} 
+            variant={copySuccess ? 'accent' : 'primary'}
+            style={{ padding: '10px 16px', fontSize: '0.85rem' }}
+          >
+            {copySuccess ? '✓ Link Berhasil Disalin!' : 'Copy Link Laporan Publik'}
+          </Button>
+        </Card>
+
+        {student.kelas?.wa_wali && (
+          <a 
+            href={`https://wa.me/${student.kelas.wa_wali}?text=Assalamualaikum%20Ustadz/Ustadzah%2C%20saya%20wali%20dari%20${encodeURIComponent(student.nama_siswa)}...`} 
+            target="_blank" 
+            rel="noopener noreferrer" 
+            className="wa-float"
+          >
+            <MessageCircle size={18} />
+            Hubungi Wali Kelas via WhatsApp
+          </a>
+        )}
+      </div>
+
+      {/* Modal Detail Stempel */}
+      <Modal 
+        isOpen={!!selectedBadge} 
+        onClose={() => setSelectedBadge(null)} 
+        title="Detail Stempel Apresiasi"
+      >
+        {selectedBadge && (
+          <div style={{ textAlign: 'center', padding: '10px 0' }}>
+            {selectedBadge.gambar_url ? (
+              <img 
+                src={selectedBadge.gambar_url} 
+                alt={selectedBadge.nama_stempel} 
+                style={{ width: '80px', height: '80px', objectFit: 'contain', marginBottom: '16px', borderRadius: '50%' }}
+              />
+            ) : (
+              <div style={{ fontSize: '4rem', marginBottom: '16px' }}>
+                {selectedBadge.simbol || '⭐'}
+              </div>
+            )}
+            <h4 style={{ fontSize: '1.2rem', color: '#1b4332', fontWeight: 700, marginBottom: '8px' }}>
+              {selectedBadge.nama_stempel}
+            </h4>
+            <span style={{ display: 'inline-block', padding: '4px 12px', background: '#fcf6bd', color: '#b58d16', borderRadius: '12px', fontSize: '0.8rem', fontWeight: 600, marginBottom: '16px' }}>
+              Grup: {selectedBadge.grup_stempel}
+            </span>
+            <p style={{ color: '#555', fontSize: '0.95rem', lineHeight: 1.5, background: '#f4f7f6', padding: '16px', borderRadius: '12px' }}>
+              {selectedBadge.deskripsi}
+            </p>
+          </div>
+        )}
+      </Modal>
+    </div>
+  );
+};
