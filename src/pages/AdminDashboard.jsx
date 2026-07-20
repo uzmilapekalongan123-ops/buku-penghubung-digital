@@ -696,7 +696,7 @@ export const AdminDashboard = ({ onLogout }) => {
         {[
           { id: 'attendance', label: 'Absensi', icon: UserCheck },
           { id: 'students', label: 'Siswa', icon: Users },
-          { id: 'badges', label: 'Beri Stempel', icon: Award },
+          { id: 'badges', label: 'Stempel', icon: Award },
           { id: 'achievements', label: 'Prestasi', icon: Star },
           { id: 'announcements', label: 'Pengumuman', icon: Megaphone }
         ].map((t) => {
@@ -707,12 +707,12 @@ export const AdminDashboard = ({ onLogout }) => {
               onClick={() => setActiveTab(t.id)}
               style={{
                 flex: 1,
-                padding: '14px 12px',
+                padding: 'clamp(8px, 2.2vw, 12px) clamp(2px, 0.8vw, 8px)',
                 border: 'none',
                 background: 'none',
                 fontFamily: 'inherit',
                 fontWeight: 600,
-                fontSize: '0.85rem',
+                fontSize: 'clamp(0.68rem, 2.2vw, 0.8rem)',
                 color: activeTab === t.id ? '#2d6a4f' : '#6c757d',
                 borderBottom: activeTab === t.id ? '3px solid #2d6a4f' : '3px solid transparent',
                 cursor: 'pointer',
@@ -720,7 +720,7 @@ export const AdminDashboard = ({ onLogout }) => {
                 flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
-                minWidth: '85px'
+                minWidth: '0'
               }}
             >
               <Icon size={16} style={{ marginBottom: '4px' }} />

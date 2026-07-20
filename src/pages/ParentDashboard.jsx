@@ -478,12 +478,12 @@ export const ParentDashboard = ({ student: initialStudent, onLogout }) => {
           onClick={() => setActiveTab('attendance')}
           style={{
             flex: 1,
-            padding: '16px 10px',
+            padding: '12px 10px',
             border: 'none',
             background: 'none',
             fontFamily: 'inherit',
             fontWeight: 600,
-            fontSize: '0.85rem',
+            fontSize: 'clamp(0.72rem, 2.5vw, 0.85rem)',
             color: activeTab === 'attendance' ? '#2d6a4f' : '#6c757d',
             borderBottom: activeTab === 'attendance' ? '3px solid #2d6a4f' : '3px solid transparent',
             cursor: 'pointer',
@@ -497,12 +497,12 @@ export const ParentDashboard = ({ student: initialStudent, onLogout }) => {
           onClick={() => setActiveTab('badges')}
           style={{
             flex: 1,
-            padding: '16px 10px',
+            padding: '12px 10px',
             border: 'none',
             background: 'none',
             fontFamily: 'inherit',
             fontWeight: 600,
-            fontSize: '0.85rem',
+            fontSize: 'clamp(0.72rem, 2.5vw, 0.85rem)',
             color: activeTab === 'badges' ? '#2d6a4f' : '#6c757d',
             borderBottom: activeTab === 'badges' ? '3px solid #2d6a4f' : '3px solid transparent',
             cursor: 'pointer',
@@ -516,12 +516,12 @@ export const ParentDashboard = ({ student: initialStudent, onLogout }) => {
           onClick={() => setActiveTab('announcements')}
           style={{
             flex: 1,
-            padding: '16px 10px',
+            padding: '12px 10px',
             border: 'none',
             background: 'none',
             fontFamily: 'inherit',
             fontWeight: 600,
-            fontSize: '0.85rem',
+            fontSize: 'clamp(0.72rem, 2.5vw, 0.85rem)',
             color: activeTab === 'announcements' ? '#2d6a4f' : '#6c757d',
             borderBottom: activeTab === 'announcements' ? '3px solid #2d6a4f' : '3px solid transparent',
             cursor: 'pointer',
