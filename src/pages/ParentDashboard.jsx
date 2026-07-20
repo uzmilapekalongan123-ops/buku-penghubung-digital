@@ -472,7 +472,8 @@ export const ParentDashboard = ({ student: initialStudent, onLogout }) => {
         position: 'sticky',
         top: 0,
         zIndex: 100,
-        boxShadow: '0 4px 6px -4px rgba(0,0,0,0.05)'
+        boxShadow: '0 4px 6px -4px rgba(0,0,0,0.05)',
+        padding: '0 8px'
       }}>
         <button
           onClick={() => setActiveTab('attendance')}

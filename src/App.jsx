@@ -7,24 +7,44 @@ import { PublicReport } from './pages/PublicReport';
 function App() {
   const [user, setUser] = useState(null);
   const [isPublic, setIsPublic] = useState(false);
+  const [isAdminRoute, setIsAdminRoute] = useState(false);
 
   useEffect(() => {
-    // Memeriksa apakah URL memiliki parameter '?token=xxx'
-    const params = new URLSearchParams(window.location.search);
-    if (params.has('token')) {
-      setIsPublic(true);
-    } else {
-      // Periksa apakah ada sesi login yang tersimpan di localStorage
-      const savedUser = localStorage.getItem('buku_penghubung_session');
-      if (savedUser) {
-        try {
-          setUser(JSON.parse(savedUser));
-        } catch (e) {
-          console.error('Gagal memuat sesi:', e);
-          localStorage.removeItem('buku_penghubung_session');
-        }
+    // Fungsi memeriksa rute admin
+    const checkRoute = () => {
+      const path = window.location.pathname;
+      const hash = window.location.hash;
+      const searchParams = new URLSearchParams(window.location.search);
+      
+      const isAdm = path.endsWith('/admin') || hash === '#/admin' || hash === '#admin' || searchParams.has('admin');
+      setIsAdminRoute(isAdm);
+      
+      // Memeriksa parameter token publik
+      if (searchParams.has('token')) {
+        setIsPublic(true);
+      }
+    };
+
+    checkRoute();
+
+    // Memeriksa sesi login tersimpan
+    const savedUser = localStorage.getItem('buku_penghubung_session');
+    if (savedUser) {
+      try {
+        setUser(JSON.parse(savedUser));
+      } catch (e) {
+        console.error('Gagal memuat sesi:', e);
+        localStorage.removeItem('buku_penghubung_session');
       }
     }
+
+    // Dengarkan navigasi browser
+    window.addEventListener('popstate', checkRoute);
+    window.addEventListener('hashchange', checkRoute);
+    return () => {
+      window.removeEventListener('popstate', checkRoute);
+      window.removeEventListener('hashchange', checkRoute);
+    };
   }, []);
 
   const handleLoginSuccess = (userData) => {
@@ -37,24 +57,34 @@ function App() {
     localStorage.removeItem('buku_penghubung_session');
   };
 
-  // Jika terdapat token di URL, tampilkan halaman laporan publik (read-only)
+  // 1. Jika terdapat token di URL, tampilkan laporan publik (read-only)
   if (isPublic) {
     return <PublicReport />;
   }
 
-  // Jika belum login, tampilkan halaman login
+  // 2. Jika belum login, tampilkan login khusus berdasarkan rute
   if (!user) {
-    return <Login onLoginSuccess={handleLoginSuccess} />;
+    return (
+      <Login 
+        onLoginSuccess={handleLoginSuccess} 
+        forcedRole={isAdminRoute ? 'teacher' : 'parent'} 
+      />
+    );
   }
 
-  // Tampilkan dashboard sesuai role
+  // 3. Tampilkan dashboard sesuai role user
   if (user.role === 'teacher') {
     return <AdminDashboard onLogout={handleLogout} />;
   } else if (user.role === 'parent') {
     return <ParentDashboard student={user.student} onLogout={handleLogout} />;
   }
 
-  return <Login onLoginSuccess={handleLoginSuccess} />;
+  return (
+    <Login 
+      onLoginSuccess={handleLoginSuccess} 
+      forcedRole={isAdminRoute ? 'teacher' : 'parent'} 
+    />
+  );
 }
 
 export default App;

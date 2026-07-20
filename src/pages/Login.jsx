@@ -4,8 +4,8 @@ import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import { BookOpen, User, ShieldAlert } from 'lucide-react';
 
-export const Login = ({ onLoginSuccess }) => {
-  const [role, setRole] = useState('parent'); // 'parent' or 'teacher'
+export const Login = ({ onLoginSuccess, forcedRole }) => {
+  const [role, setRole] = useState(forcedRole || 'parent'); // 'parent' or 'teacher'
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -69,60 +69,62 @@ export const Login = ({ onLoginSuccess }) => {
           Buku Penghubung
         </h1>
         <p style={{ color: '#6c757d', fontSize: '0.95rem' }}>
-          Portal Absensi & Laporan Perkembangan Siswa
+          {role === 'parent' ? 'Portal Laporan & Absensi Wali Murid' : 'Portal Manajemen Dasbor Guru'}
         </p>
       </div>
 
       <Card className="fade-in" style={{ padding: '28px' }}>
-        {/* Toggle Role */}
-        <div style={{
-          display: 'flex',
-          background: 'rgba(0,0,0,0.04)',
-          padding: '4px',
-          borderRadius: '10px',
-          marginBottom: '24px'
-        }}>
-          <button
-            type="button"
-            onClick={() => { setRole('parent'); setError(''); }}
-            style={{
-              flex: 1,
-              padding: '10px',
-              border: 'none',
-              borderRadius: '8px',
-              fontFamily: 'inherit',
-              fontWeight: 600,
-              fontSize: '0.9rem',
-              cursor: 'pointer',
-              background: role === 'parent' ? '#ffffff' : 'transparent',
-              color: role === 'parent' ? '#1b4332' : '#6c757d',
-              boxShadow: role === 'parent' ? '0 2px 4px rgba(0,0,0,0.05)' : 'none',
-              transition: 'all 0.2s ease'
-            }}
-          >
-            Wali Murid
-          </button>
-          <button
-            type="button"
-            onClick={() => { setRole('teacher'); setError(''); }}
-            style={{
-              flex: 1,
-              padding: '10px',
-              border: 'none',
-              borderRadius: '8px',
-              fontFamily: 'inherit',
-              fontWeight: 600,
-              fontSize: '0.9rem',
-              cursor: 'pointer',
-              background: role === 'teacher' ? '#ffffff' : 'transparent',
-              color: role === 'teacher' ? '#1b4332' : '#6c757d',
-              boxShadow: role === 'teacher' ? '0 2px 4px rgba(0,0,0,0.05)' : 'none',
-              transition: 'all 0.2s ease'
-            }}
-          >
-            Wali Kelas (Guru)
-          </button>
-        </div>
+        {/* Toggle Role (Hanya ditampilkan jika tidak dipaksa oleh URL) */}
+        {!forcedRole && (
+          <div style={{
+            display: 'flex',
+            background: 'rgba(0,0,0,0.04)',
+            padding: '4px',
+            borderRadius: '10px',
+            marginBottom: '24px'
+          }}>
+            <button
+              type="button"
+              onClick={() => { setRole('parent'); setError(''); }}
+              style={{
+                flex: 1,
+                padding: '10px',
+                border: 'none',
+                borderRadius: '8px',
+                fontFamily: 'inherit',
+                fontWeight: 600,
+                fontSize: '0.9rem',
+                cursor: 'pointer',
+                background: role === 'parent' ? '#ffffff' : 'transparent',
+                color: role === 'parent' ? '#1b4332' : '#6c757d',
+                boxShadow: role === 'parent' ? '0 2px 4px rgba(0,0,0,0.05)' : 'none',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              Wali Murid
+            </button>
+            <button
+              type="button"
+              onClick={() => { setRole('teacher'); setError(''); }}
+              style={{
+                flex: 1,
+                padding: '10px',
+                border: 'none',
+                borderRadius: '8px',
+                fontFamily: 'inherit',
+                fontWeight: 600,
+                fontSize: '0.9rem',
+                cursor: 'pointer',
+                background: role === 'teacher' ? '#ffffff' : 'transparent',
+                color: role === 'teacher' ? '#1b4332' : '#6c757d',
+                boxShadow: role === 'teacher' ? '0 2px 4px rgba(0,0,0,0.05)' : 'none',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              Wali Kelas (Guru)
+            </button>
+          </div>
+        )}
 
         {error && (
           <div style={{

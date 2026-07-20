@@ -39,7 +39,7 @@ export const AdminDashboard = ({ onLogout }) => {
   const [selectedBadgeId, setSelectedBadgeId] = useState('');
   const [badgeNote, setBadgeNote] = useState('');
   const [givingBadge, setGivingBadge] = useState(false);
-  const [activeBadgeGroupFilter, setActiveBadgeGroupFilter] = useState('Semmua');
+  const [activeBadgeGroupFilter, setActiveBadgeGroupFilter] = useState('Semua');
 
   // --- State Stempel yang Dimiliki Siswa Terpilih (Dapat Ditarik/Dihapus) ---
   const [givenBadges, setGivenBadges] = useState([]);
@@ -64,6 +64,19 @@ export const AdminDashboard = ({ onLogout }) => {
   const [announcementForm, setAnnouncementForm] = useState({ kategori: 'Informasi', isi: '', link_luar: '' });
   const [comments, setComments] = useState({});
   const [savingAnnouncement, setSavingAnnouncement] = useState(false);
+
+  // --- State Custom Toast & Confirm Modal ---
+  const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
+  const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
+
+  const showToast = (message, type = 'success') => {
+    setToast({ show: true, message, type });
+    setTimeout(() => setToast(prev => ({ ...prev, show: false })), 3000);
+  };
+
+  const triggerConfirm = (title, message, onConfirm) => {
+    setConfirmModal({ isOpen: true, title, message, onConfirm });
+  };
 
   useEffect(() => {
     fetchInitialData();
@@ -125,9 +138,10 @@ export const AdminDashboard = ({ onLogout }) => {
       if (error) throw error;
       setClassInfo(prev => ({ ...prev, nama_wali: waliName, wa_wali: waliWa }));
       setIsEditingWali(false);
+      showToast('Data wali kelas berhasil diperbarui!');
     } catch (err) {
       console.error(err);
-      alert('Gagal memperbarui data Wali Kelas.');
+      showToast('Gagal memperbarui data Wali Kelas.', 'error');
     }
   };
 
@@ -162,15 +176,6 @@ export const AdminDashboard = ({ onLogout }) => {
     }));
   };
 
-  const handleMarkAllPresent = () => {
-    const updated = { ...absences };
-    const filtered = students.filter(s => s.nama_siswa.toLowerCase().includes(attendanceSearchQuery.toLowerCase()));
-    filtered.forEach(s => {
-      updated[s.id] = { ...updated[s.id], status: 'Hadir' };
-    });
-    setAbsences(updated);
-  };
-
   const handleSaveAttendance = async () => {
     setSavingAttendance(true);
     try {
@@ -186,10 +191,10 @@ export const AdminDashboard = ({ onLogout }) => {
         .upsert(upsertData, { onConflict: 'siswa_id,tanggal' });
 
       if (error) throw error;
-      alert('Absensi berhasil disimpan!');
+      showToast('Absensi berhasil disimpan!', 'success');
     } catch (err) {
       console.error(err);
-      alert('Gagal menyimpan absensi.');
+      showToast('Gagal menyimpan absensi.', 'error');
     } finally {
       setSavingAttendance(false);
     }
@@ -224,31 +229,39 @@ export const AdminDashboard = ({ onLogout }) => {
           .update(studentForm)
           .eq('id', currentStudent.id);
         if (error) throw error;
+        showToast('Data siswa berhasil disimpan!', 'success');
       } else {
         const { error } = await supabase
           .from('siswa')
           .insert({ ...studentForm, kelas_id: classInfo.id });
         if (error) throw error;
+        showToast('Siswa baru berhasil didaftarkan!', 'success');
       }
 
       setIsStudentModalOpen(false);
       fetchInitialData();
     } catch (err) {
       console.error(err);
-      alert('Gagal menyimpan data siswa. Username atau Token mungkin duplikat.');
+      showToast('Gagal menyimpan data siswa. Username atau Token mungkin duplikat.', 'error');
     }
   };
 
-  const handleDeleteStudent = async (studentId) => {
-    if (!window.confirm('Apakah Anda yakin ingin menghapus siswa ini? Semua catatan absensi, stempel, dan prestasi anak ini akan terhapus.')) return;
-    try {
-      const { error } = await supabase.from('siswa').delete().eq('id', studentId);
-      if (error) throw error;
-      fetchInitialData();
-    } catch (err) {
-      console.error(err);
-      alert('Gagal menghapus siswa.');
-    }
+  const handleDeleteStudent = (studentId) => {
+    triggerConfirm(
+      'Hapus Data Siswa',
+      'Apakah Anda yakin ingin menghapus siswa ini? Semua catatan absensi, stempel, dan prestasi anak ini akan terhapus secara permanen.',
+      async () => {
+        try {
+          const { error } = await supabase.from('siswa').delete().eq('id', studentId);
+          if (error) throw error;
+          showToast('Siswa berhasil dihapus!', 'success');
+          fetchInitialData();
+        } catch (err) {
+          console.error(err);
+          showToast('Gagal menghapus siswa.', 'error');
+        }
+      }
+    );
   };
 
   const handleGenerateNewToken = () => {
@@ -258,30 +271,34 @@ export const AdminDashboard = ({ onLogout }) => {
     }));
   };
 
-  const handleGenerateAllTokens = async () => {
+  const handleGenerateAllTokens = () => {
     if (students.length === 0) return;
-    if (!window.confirm('Apakah Anda yakin ingin me-reset & membuat ulang token akses publik untuk SEMUA siswa? Tautan laporan publik lama wali murid tidak akan bisa diakses lagi setelah reset ini.')) return;
-
-    setGeneratingAllTokens(true);
-    try {
-      for (const s of students) {
-        const newToken = 'tkn_' + Math.random().toString(36).substring(2, 10);
-        const { error } = await supabase
-          .from('siswa')
-          .update({ token: newToken })
-          .eq('id', s.id);
-        
-        if (error) throw error;
+    triggerConfirm(
+      'Reset Token Akses Semua Siswa',
+      'Apakah Anda yakin ingin me-reset & membuat ulang token akses publik untuk SEMUA siswa? Tautan laporan publik lama wali murid tidak akan bisa diakses lagi setelah reset ini.',
+      async () => {
+        setGeneratingAllTokens(true);
+        try {
+          for (const s of students) {
+            const newToken = 'tkn_' + Math.random().toString(36).substring(2, 10);
+            const { error } = await supabase
+              .from('siswa')
+              .update({ token: newToken })
+              .eq('id', s.id);
+            
+            if (error) throw error;
+          }
+          
+          showToast('Berhasil membuat ulang semua token akses siswa!', 'success');
+          fetchInitialData();
+        } catch (err) {
+          console.error('Error generating all tokens:', err);
+          showToast('Terjadi kesalahan saat membuat ulang token akses.', 'error');
+        } finally {
+          setGeneratingAllTokens(false);
+        }
       }
-      
-      alert('Berhasil membuat ulang semua token akses siswa!');
-      fetchInitialData();
-    } catch (err) {
-      console.error('Error generating all tokens:', err);
-      alert('Terjadi kesalahan saat membuat ulang token akses.');
-    } finally {
-      setGeneratingAllTokens(false);
-    }
+    );
   };
 
   // --- Aksi Stempel (Beri, Tarik, Tambah Katalog, Hapus Katalog) ---
@@ -306,7 +323,7 @@ export const AdminDashboard = ({ onLogout }) => {
   const handleGiveBadge = async (e) => {
     e.preventDefault();
     if (!selectedStudentForBadge || !selectedBadgeId) {
-      alert('Pilih siswa dan jenis stempel terlebih dahulu.');
+      showToast('Pilih siswa dan jenis stempel terlebih dahulu.', 'warning');
       return;
     }
 
@@ -321,33 +338,38 @@ export const AdminDashboard = ({ onLogout }) => {
         });
 
       if (error) throw error;
-      alert('Stempel apresiasi berhasil diberikan!');
+      showToast('Stempel apresiasi berhasil diberikan!', 'success');
       setSelectedBadgeId('');
       setBadgeNote('');
       fetchGivenBadges(selectedStudentForBadge); // Refresh riwayat stempel siswa terpilih
     } catch (err) {
       console.error(err);
-      alert('Gagal memberikan stempel.');
+      showToast('Gagal memberikan stempel.', 'error');
     } finally {
       setGivingBadge(false);
     }
   };
 
-  const handleDeleteGivenBadge = async (id) => {
-    if (!window.confirm('Apakah Anda yakin ingin menarik/menghapus pemberian stempel ini dari ananda?')) return;
-    try {
-      const { error } = await supabase
-        .from('catatan_stempel')
-        .delete()
-        .eq('id', id);
+  const handleDeleteGivenBadge = (id) => {
+    triggerConfirm(
+      'Tarik Stempel Siswa',
+      'Apakah Anda yakin ingin menarik/menghapus pemberian stempel ini dari ananda?',
+      async () => {
+        try {
+          const { error } = await supabase
+            .from('catatan_stempel')
+            .delete()
+            .eq('id', id);
 
-      if (error) throw error;
-      alert('Stempel berhasil ditarik!');
-      fetchGivenBadges(selectedStudentForBadge);
-    } catch (err) {
-      console.error(err);
-      alert('Gagal menarik stempel.');
-    }
+          if (error) throw error;
+          showToast('Stempel berhasil ditarik!', 'success');
+          fetchGivenBadges(selectedStudentForBadge);
+        } catch (err) {
+          console.error(err);
+          showToast('Gagal menarik stempel.', 'error');
+        }
+      }
+    );
   };
 
   const handleImageUpload = (e) => {
@@ -378,17 +400,17 @@ export const AdminDashboard = ({ onLogout }) => {
   const handleAddNewBadgeCatalog = async (e) => {
     e.preventDefault();
     if (!newBadgeForm.nama_stempel || !newBadgeForm.deskripsi) {
-      alert('Lengkapi nama stempel dan penjelasan.');
+      showToast('Lengkapi nama stempel dan penjelasan.', 'warning');
       return;
     }
 
     if (iconMode === 'emoji' && !newBadgeForm.simbol) {
-      alert('Masukkan simbol emoji stempel.');
+      showToast('Masukkan simbol emoji stempel.', 'warning');
       return;
     }
 
     if (iconMode === 'upload' && !newBadgeForm.gambar_url) {
-      alert('Pilih file gambar kustom terlebih dahulu.');
+      showToast('Pilih file gambar kustom terlebih dahulu.', 'warning');
       return;
     }
 
@@ -397,7 +419,7 @@ export const AdminDashboard = ({ onLogout }) => {
       : newBadgeForm.grup_stempel;
 
     if (!groupToSave) {
-      alert('Tulis nama grup stempel baru.');
+      showToast('Tulis nama grup stempel baru.', 'warning');
       return;
     }
 
@@ -414,7 +436,7 @@ export const AdminDashboard = ({ onLogout }) => {
         });
 
       if (error) throw error;
-      alert('Stempel baru berhasil ditambahkan ke katalog!');
+      showToast('Stempel baru berhasil ditambahkan ke katalog!', 'success');
       
       setNewBadgeForm({ nama_stempel: '', simbol: '⭐', gambar_url: '', deskripsi: '', grup_stempel: 'Apresiasi', custom_grup_stempel: '' });
       setIsAddingNewBadgeCatalog(false);
@@ -424,46 +446,51 @@ export const AdminDashboard = ({ onLogout }) => {
       setMasterBadges(bdgData || []);
     } catch (err) {
       console.error('Error saving new master badge:', err);
-      alert('Gagal menambahkan stempel ke katalog.');
+      showToast('Gagal menambahkan stempel ke katalog.', 'error');
     } finally {
       setSavingNewBadgeCatalog(false);
     }
   };
 
-  const handleDeleteMasterBadge = async (badgeId, badgeName) => {
-    if (!window.confirm(`⚠️ PERINGATAN: Apakah Anda yakin ingin menghapus stempel "${badgeName}" dari katalog? \n\nTindakan ini secara otomatis akan menghapus stempel ini dari seluruh siswa yang telah mendapatkannya.`)) return;
-    try {
-      const { error } = await supabase
-        .from('master_badge')
-        .delete()
-        .eq('id', badgeId);
+  const handleDeleteMasterBadge = (badgeId, badgeName) => {
+    triggerConfirm(
+      'Hapus Stempel Dari Katalog',
+      `⚠️ PERINGATAN: Apakah Anda yakin ingin menghapus stempel "${badgeName}" dari katalog? \n\nTindakan ini secara otomatis akan menghapus stempel ini dari seluruh siswa yang telah mendapatkannya.`,
+      async () => {
+        try {
+          const { error } = await supabase
+            .from('master_badge')
+            .delete()
+            .eq('id', badgeId);
 
-      if (error) throw error;
-      alert(`Stempel "${badgeName}" berhasil dihapus dari katalog!`);
+          if (error) throw error;
+          showToast(`Stempel "${badgeName}" berhasil dihapus dari katalog!`, 'success');
 
-      if (selectedBadgeId === badgeId) {
-        setSelectedBadgeId('');
+          if (selectedBadgeId === badgeId) {
+            setSelectedBadgeId('');
+          }
+
+          // Refresh katalog
+          const { data: bdgData } = await supabase.from('master_badge').select('*');
+          setMasterBadges(bdgData || []);
+
+          // Refresh riwayat stempel siswa terpilih
+          if (selectedStudentForBadge) {
+            fetchGivenBadges(selectedStudentForBadge);
+          }
+        } catch (err) {
+          console.error('Error deleting master badge:', err);
+          showToast('Gagal menghapus stempel dari katalog.', 'error');
+        }
       }
-
-      // Refresh katalog
-      const { data: bdgData } = await supabase.from('master_badge').select('*');
-      setMasterBadges(bdgData || []);
-
-      // Refresh riwayat stempel siswa terpilih
-      if (selectedStudentForBadge) {
-        fetchGivenBadges(selectedStudentForBadge);
-      }
-    } catch (err) {
-      console.error('Error deleting master badge:', err);
-      alert('Gagal menghapus stempel dari katalog.');
-    }
+    );
   };
 
   // --- Aksi Prestasi ---
   const handleSavePrestasi = async (e) => {
     e.preventDefault();
     if (!selectedStudentForPrestasi || !prestasiForm.judul) {
-      alert('Pilih siswa dan isi judul prestasi.');
+      showToast('Pilih siswa dan isi judul prestasi.', 'warning');
       return;
     }
 
@@ -479,12 +506,12 @@ export const AdminDashboard = ({ onLogout }) => {
         });
 
       if (error) throw error;
-      alert('Prestasi siswa berhasil dicatat!');
+      showToast('Prestasi siswa berhasil dicatat!', 'success');
       setSelectedStudentForPrestasi('');
       setPrestasiForm({ tanggal: new Date().toISOString().split('T')[0], judul: '', deskripsi: '' });
     } catch (err) {
       console.error(err);
-      alert('Gagal menyimpan prestasi.');
+      showToast('Gagal menyimpan prestasi.', 'error');
     } finally {
       setSavingPrestasi(false);
     }
@@ -549,37 +576,68 @@ export const AdminDashboard = ({ onLogout }) => {
       if (error) throw error;
       setAnnouncementForm({ kategori: 'Informasi', isi: '', link_luar: '' });
       fetchAnnouncements();
-      alert('Pengumuman berhasil diposting!');
+      showToast('Pengumuman berhasil diposting!', 'success');
     } catch (err) {
       console.error(err);
-      alert('Gagal memposting pengumuman.');
+      showToast('Gagal memposting pengumuman.', 'error');
     } finally {
       setSavingAnnouncement(false);
     }
   };
 
-  const handleDeleteComment = async (commentId) => {
-    if (!window.confirm('Hapus komentar ini?')) return;
+  const handlePostComment = async (annId, commentText) => {
     try {
-      const { error } = await supabase.from('komentar').delete().eq('id', commentId);
+      const { error } = await supabase
+        .from('komentar')
+        .insert({
+          pengumuman_id: annId,
+          nama_user: `Guru (${classInfo?.nama_wali || 'Wali Kelas'})`,
+          komentar: commentText.trim()
+        });
+
       if (error) throw error;
+      showToast('Tanggapan berhasil dikirim!', 'success');
       fetchAnnouncements();
     } catch (err) {
       console.error(err);
-      alert('Gagal menghapus komentar.');
+      showToast('Gagal memposting tanggapan.', 'error');
     }
   };
 
-  const handleDeleteAnnouncement = async (annId) => {
-    if (!window.confirm('Hapus pengumuman ini? Semua komentar di dalamnya juga akan terhapus.')) return;
-    try {
-      const { error } = await supabase.from('pengumuman').delete().eq('id', annId);
-      if (error) throw error;
-      fetchAnnouncements();
-    } catch (err) {
-      console.error(err);
-      alert('Gagal menghapus pengumuman.');
-    }
+  const handleDeleteComment = (commentId) => {
+    triggerConfirm(
+      'Hapus Komentar',
+      'Apakah Anda yakin ingin menghapus tanggapan/komentar ini secara permanen?',
+      async () => {
+        try {
+          const { error } = await supabase.from('komentar').delete().eq('id', commentId);
+          if (error) throw error;
+          showToast('Komentar berhasil dihapus!', 'success');
+          fetchAnnouncements();
+        } catch (err) {
+          console.error(err);
+          showToast('Gagal menghapus komentar.', 'error');
+        }
+      }
+    );
+  };
+
+  const handleDeleteAnnouncement = (annId) => {
+    triggerConfirm(
+      'Hapus Pengumuman',
+      'Apakah Anda yakin ingin menghapus pengumuman ini secara permanen? Semua komentar di dalamnya juga akan terhapus.',
+      async () => {
+        try {
+          const { error } = await supabase.from('pengumuman').delete().eq('id', annId);
+          if (error) throw error;
+          showToast('Pengumuman berhasil dihapus!', 'success');
+          fetchAnnouncements();
+        } catch (err) {
+          console.error(err);
+          showToast('Gagal menghapus pengumuman.', 'error');
+        }
+      }
+    );
   };
 
   if (loading) {
@@ -691,7 +749,8 @@ export const AdminDashboard = ({ onLogout }) => {
         zIndex: 100,
         overflowX: 'auto',
         whiteSpace: 'nowrap',
-        boxShadow: '0 4px 6px -4px rgba(0,0,0,0.05)'
+        boxShadow: '0 4px 6px -4px rgba(0,0,0,0.05)',
+        padding: '0 8px'
       }}>
         {[
           { id: 'attendance', label: 'Absensi', icon: UserCheck },
@@ -737,8 +796,8 @@ export const AdminDashboard = ({ onLogout }) => {
         {activeTab === 'attendance' && (
           <>
             <Card>
-              <h3 style={{ fontSize: '1.05rem', color: '#1b4332', marginBottom: '14px', fontWeight: 600 }}>Pilih Tanggal & Aksi Cepat</h3>
-              <div className="form-group">
+              <h3 style={{ fontSize: '1.05rem', color: '#1b4332', marginBottom: '14px', fontWeight: 600 }}>Pilih Tanggal Absensi</h3>
+              <div className="form-group" style={{ marginBottom: 0 }}>
                 <label className="form-label" htmlFor="att-date">Tanggal Absensi</label>
                 <input 
                   type="date" 
@@ -748,9 +807,6 @@ export const AdminDashboard = ({ onLogout }) => {
                   onChange={(e) => setAttendanceDate(e.target.value)}
                 />
               </div>
-              <Button onClick={handleMarkAllPresent} variant="outline" style={{ fontSize: '0.88rem' }}>
-                Hadirkan Semua Siswa (Sesuai Pencarian)
-              </Button>
             </Card>
 
             <Card>
@@ -1150,9 +1206,8 @@ export const AdminDashboard = ({ onLogout }) => {
                   </select>
                 </div>
 
-                <div className="form-group">
-                  <label className="form-label">Saring Grup Stempel</label>
-                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '6px', marginBottom: '12px' }}>
+                <div className="form-group" style={{ marginBottom: '12px' }}>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '4px' }}>
                     {['Semua', ...dbBadgeGroups].map((g) => (
                       <button
                         key={g}
@@ -1512,6 +1567,42 @@ export const AdminDashboard = ({ onLogout }) => {
                             ))
                           )}
                         </div>
+
+                        {/* Form Tambah Komentar oleh Guru */}
+                        <form 
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            const cmtText = e.target.elements[`comment-${a.id}`].value;
+                            if (!cmtText.trim()) return;
+                            handlePostComment(a.id, cmtText);
+                            e.target.reset();
+                          }}
+                          style={{ display: 'flex', gap: '6px', marginTop: '10px' }}
+                        >
+                          <input 
+                            type="text" 
+                            name={`comment-${a.id}`}
+                            className="form-input" 
+                            style={{ padding: '6px 10px', fontSize: '0.78rem', flex: 1 }} 
+                            placeholder="Tulis tanggapan atau instruksi baru..."
+                            required
+                          />
+                          <button 
+                            type="submit" 
+                            style={{ 
+                              background: '#2d6a4f', 
+                              border: 'none', 
+                              color: 'white', 
+                              borderRadius: '8px', 
+                              padding: '0 14px', 
+                              cursor: 'pointer',
+                              fontSize: '0.78rem',
+                              fontWeight: 600
+                            }}
+                          >
+                            Kirim
+                          </button>
+                        </form>
                       </div>
                     </div>
                   ))}
@@ -1641,6 +1732,64 @@ export const AdminDashboard = ({ onLogout }) => {
           </Button>
         </form>
       </Modal>
+
+      {/* Toast Notification */}
+      {toast.show && (
+        <div style={{
+          position: 'fixed',
+          bottom: '24px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          background: toast.type === 'error' ? '#c62828' : toast.type === 'warning' ? '#b58d16' : '#2d6a4f',
+          color: 'white',
+          padding: '10px 18px',
+          borderRadius: '12px',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+          zIndex: 2000,
+          fontSize: '0.85rem',
+          fontWeight: 600,
+          textAlign: 'center',
+          pointerEvents: 'none',
+          width: 'calc(100% - 32px)',
+          maxWidth: '400px',
+          animation: 'fadeIn 0.2s ease'
+        }}>
+          {toast.message}
+        </div>
+      )}
+
+      {/* Custom Confirmation Modal */}
+      {confirmModal.isOpen && (
+        <Modal
+          isOpen={confirmModal.isOpen}
+          onClose={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+          title={confirmModal.title}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <p style={{ fontSize: '0.88rem', color: '#555', lineHeight: 1.5 }}>
+              {confirmModal.message}
+            </p>
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <Button 
+                onClick={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+                variant="outline" 
+                style={{ padding: '8px 16px', fontSize: '0.85rem' }}
+              >
+                Batal
+              </Button>
+              <Button 
+                onClick={() => {
+                  confirmModal.onConfirm();
+                  setConfirmModal(prev => ({ ...prev, isOpen: false }));
+                }}
+                style={{ padding: '8px 16px', fontSize: '0.85rem', background: '#c62828' }}
+              >
+                Setuju / Hapus
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 };
