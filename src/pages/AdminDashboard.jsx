@@ -669,9 +669,12 @@ export const AdminDashboard = ({ onLogout }) => {
       {/* Top Navbar */}
       <header>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-          <div>
-            <h2 style={{ fontSize: '1.4rem', fontWeight: 700, margin: 0 }}>Dasbor Wali Kelas</h2>
-            <p style={{ opacity: 0.95, fontSize: '0.85rem', fontWeight: 500 }}>Wali Kelas: {classInfo?.nama_wali || 'Guru'}</p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <img src="./logo.png" alt="Logo" style={{ width: '32px', height: '32px', objectFit: 'contain', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.15))' }} />
+            <div>
+              <h2 style={{ fontSize: '1.3rem', fontWeight: 700, margin: 0 }}>Dasbor Wali Kelas</h2>
+              <p style={{ opacity: 0.95, fontSize: '0.85rem', fontWeight: 500 }}>Wali Kelas: {classInfo?.nama_wali || 'Guru'}</p>
+            </div>
           </div>
           <button 
             onClick={onLogout} 

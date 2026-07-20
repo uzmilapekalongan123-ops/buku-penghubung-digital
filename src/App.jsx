@@ -7,20 +7,18 @@ import { PublicReport } from './pages/PublicReport';
 function App() {
   const [user, setUser] = useState(null);
   const [isPublic, setIsPublic] = useState(false);
-  const [isAdminRoute, setIsAdminRoute] = useState(false);
+  const [isAdminRoute, setIsAdminRoute] = useState(() => {
+    return window.location.href.includes('admin');
+  });
 
   useEffect(() => {
     // Fungsi memeriksa rute admin
     const checkRoute = () => {
-      const path = window.location.pathname;
-      const hash = window.location.hash;
-      const searchParams = new URLSearchParams(window.location.search);
-      
-      const isAdm = path.endsWith('/admin') || hash === '#/admin' || hash === '#admin' || searchParams.has('admin');
+      const isAdm = window.location.href.includes('admin');
       setIsAdminRoute(isAdm);
       
       // Memeriksa parameter token publik
-      if (searchParams.has('token')) {
+      if (new URLSearchParams(window.location.search).has('token')) {
         setIsPublic(true);
       }
     };
@@ -66,6 +64,7 @@ function App() {
   if (!user) {
     return (
       <Login 
+        key={isAdminRoute ? 'admin' : 'parent'}
         onLoginSuccess={handleLoginSuccess} 
         forcedRole={isAdminRoute ? 'teacher' : 'parent'} 
       />
@@ -81,6 +80,7 @@ function App() {
 
   return (
     <Login 
+      key={isAdminRoute ? 'admin' : 'parent'}
       onLoginSuccess={handleLoginSuccess} 
       forcedRole={isAdminRoute ? 'teacher' : 'parent'} 
     />

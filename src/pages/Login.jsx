@@ -53,18 +53,18 @@ export const Login = ({ onLoginSuccess, forcedRole }) => {
 
   return (
     <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '100vh' }}>
-      <div style={{ textAlign: 'center', marginBottom: '30px' }} className="fade-in">
-        <div style={{
-          display: 'inline-flex',
-          padding: '16px',
-          background: 'linear-gradient(135deg, #2d6a4f, #1b4332)',
-          borderRadius: '50%',
-          color: 'white',
-          marginBottom: '16px',
-          boxShadow: '0 8px 16px rgba(45, 106, 79, 0.2)'
-        }}>
-          <BookOpen size={40} />
-        </div>
+      <div style={{ textAlign: 'center', marginBottom: '24px' }} className="fade-in">
+        <img 
+          src="./logo.png" 
+          alt="Logo Sekolah" 
+          style={{
+            height: '80px',
+            width: '80px',
+            objectFit: 'contain',
+            marginBottom: '12px',
+            filter: 'drop-shadow(0 4px 8px rgba(0, 0, 0, 0.1))'
+          }} 
+        />
         <h1 style={{ fontSize: '1.8rem', fontWeight: 700, color: '#1b4332', marginBottom: '6px' }}>
           Buku Penghubung
         </h1>

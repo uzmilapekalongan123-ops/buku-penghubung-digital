@@ -388,9 +388,12 @@ export const ParentDashboard = ({ student: initialStudent, onLogout }) => {
       {/* Top Navbar & Header Area */}
       <header style={{ position: 'relative' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', position: 'relative', zIndex: 10 }}>
-          <div>
-            <h2 style={{ fontSize: '1.4rem', fontWeight: 700, margin: 0 }}>Buku Penghubung</h2>
-            <p style={{ opacity: 0.95, fontSize: '0.85rem', fontWeight: 500 }}>Wali Kelas: {studentData.kelas?.nama_wali}</p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <img src="./logo.png" alt="Logo" style={{ width: '32px', height: '32px', objectFit: 'contain', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.15))' }} />
+            <div>
+              <h2 style={{ fontSize: '1.3rem', fontWeight: 700, margin: 0 }}>Buku Penghubung</h2>
+              <p style={{ opacity: 0.95, fontSize: '0.85rem', fontWeight: 500 }}>Wali Kelas: {studentData.kelas?.nama_wali}</p>
+            </div>
           </div>
           <button 
             onClick={onLogout}

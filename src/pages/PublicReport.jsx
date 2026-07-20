@@ -331,8 +331,8 @@ export const PublicReport = () => {
       {/* Header Reorganization: Left (Title & Student Name), Right (WA Button without extra text) */}
       <header>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', position: 'relative', zIndex: 10 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <div style={{ fontSize: '1.8rem' }}>🎒</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <img src="./logo.png" alt="Logo" style={{ width: '36px', height: '36px', objectFit: 'contain', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.15))' }} />
             <div>
               <h2 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0 }}>Laporan Publik Siswa</h2>
               <p style={{ opacity: 0.95, fontSize: '0.8rem' }}>
