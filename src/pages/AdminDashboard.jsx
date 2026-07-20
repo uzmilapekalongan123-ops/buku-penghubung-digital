@@ -613,7 +613,7 @@ export const AdminDashboard = ({ onLogout }) => {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
           <div>
             <h2 style={{ fontSize: '1.4rem', fontWeight: 700, margin: 0 }}>Dasbor Wali Kelas</h2>
-            <p style={{ opacity: 0.9, fontSize: '0.85rem' }}>{classInfo?.nama_kelas || 'Nama Kelas'}</p>
+            <p style={{ opacity: 0.95, fontSize: '0.85rem', fontWeight: 500 }}>Wali Kelas: {classInfo?.nama_wali || 'Guru'}</p>
           </div>
           <button 
             onClick={onLogout} 
@@ -731,7 +731,7 @@ export const AdminDashboard = ({ onLogout }) => {
       </div>
 
       {/* Tab Contents */}
-      <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }} className="fade-in">
+      <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }} className="fade-in">
         
         {/* TAB 1: ABSENSI */}
         {activeTab === 'attendance' && (

@@ -390,7 +390,7 @@ export const ParentDashboard = ({ student: initialStudent, onLogout }) => {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', position: 'relative', zIndex: 10 }}>
           <div>
             <h2 style={{ fontSize: '1.4rem', fontWeight: 700, margin: 0 }}>Buku Penghubung</h2>
-            <p style={{ opacity: 0.9, fontSize: '0.85rem' }}>{studentData.kelas?.nama_kelas}</p>
+            <p style={{ opacity: 0.95, fontSize: '0.85rem', fontWeight: 500 }}>Wali Kelas: {studentData.kelas?.nama_wali}</p>
           </div>
           <button 
             onClick={onLogout}
@@ -414,10 +414,10 @@ export const ParentDashboard = ({ student: initialStudent, onLogout }) => {
           </button>
         </div>
 
-        {/* Info User Block: Kiri (Nama Ortu & Anak), Kanan (Tombol WhatsApp Wali Kelas Tanpa Teks Panjang) */}
+        {/* Info User Block: Kiri (Nama Ortu & Anak), Kanan (Tombol WhatsApp Wali Kelas Bertumpuk Vertikal) */}
         <div style={{ 
           background: 'rgba(255, 255, 255, 0.15)', 
-          padding: '14px', 
+          padding: '12px 14px', 
           borderRadius: '16px', 
           fontSize: '0.9rem',
           display: 'flex',
@@ -433,7 +433,7 @@ export const ParentDashboard = ({ student: initialStudent, onLogout }) => {
             <p style={{ fontSize: '0.82rem', opacity: 0.95 }}>Ananda: <strong style={{ textDecoration: 'underline' }}>{studentData.nama_siswa}</strong></p>
           </div>
           
-          {/* Kanan - Tombol WA Wali Kelas (Cukup Hubungi Wali Kelas) */}
+          {/* Kanan - Tombol WA Wali Kelas (Bertumpuk Vertikal) */}
           {studentData.kelas?.wa_wali && (
             <a 
               href={`https://wa.me/${studentData.kelas.wa_wali}?text=Assalamualaikum%20Ustadzah%20${encodeURIComponent(studentData.kelas.nama_wali)}%2C%20saya%20wali%20dari%20${encodeURIComponent(studentData.nama_siswa)}...`} 
@@ -442,20 +442,23 @@ export const ParentDashboard = ({ student: initialStudent, onLogout }) => {
               style={{
                 background: '#25d366',
                 color: 'white',
-                padding: '10px 14px',
+                padding: '8px 10px',
                 borderRadius: '12px',
                 textDecoration: 'none',
                 display: 'inline-flex',
+                flexDirection: 'column',
                 alignItems: 'center',
-                gap: '6px',
+                justifyContent: 'center',
+                gap: '2px',
                 boxShadow: '0 3px 6px rgba(0,0,0,0.1)',
                 fontWeight: 600,
-                fontSize: '0.82rem',
-                whiteSpace: 'nowrap'
+                fontSize: '0.72rem',
+                minWidth: '85px',
+                textAlign: 'center'
               }}
             >
-              <MessageCircle size={16} />
-              Hubungi Wali Kelas
+              <MessageCircle size={18} />
+              <span>Hubungi Guru</span>
             </a>
           )}
         </div>
@@ -531,7 +534,7 @@ export const ParentDashboard = ({ student: initialStudent, onLogout }) => {
       </div>
 
       {/* Tab Contents */}
-      <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }} className="fade-in">
+      <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }} className="fade-in">
         
         {/* TAB 1: KEHADIRAN */}
         {activeTab === 'attendance' && (

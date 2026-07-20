@@ -338,7 +338,7 @@ export const PublicReport = () => {
               <p style={{ opacity: 0.95, fontSize: '0.8rem' }}>
                 Ananda: <strong style={{ textDecoration: 'underline' }}>{student.nama_siswa}</strong>
               </p>
-              <p style={{ opacity: 0.85, fontSize: '0.75rem' }}>{student.kelas?.nama_kelas || 'Kelas'}</p>
+              <p style={{ opacity: 0.85, fontSize: '0.75rem', fontWeight: 500 }}>Wali Kelas: {student.kelas?.nama_wali || 'Guru'}</p>
             </div>
           </div>
           
@@ -350,26 +350,29 @@ export const PublicReport = () => {
               style={{
                 background: '#25d366',
                 color: 'white',
-                padding: '10px 14px',
+                padding: '8px 10px',
                 borderRadius: '12px',
                 textDecoration: 'none',
                 display: 'inline-flex',
+                flexDirection: 'column',
                 alignItems: 'center',
-                gap: '6px',
+                justifyContent: 'center',
+                gap: '2px',
                 boxShadow: '0 3px 6px rgba(0,0,0,0.1)',
                 fontWeight: 600,
-                fontSize: '0.82rem',
-                whiteSpace: 'nowrap'
+                fontSize: '0.72rem',
+                minWidth: '85px',
+                textAlign: 'center'
               }}
             >
-              <MessageCircle size={16} />
-              Hubungi Wali Kelas
+              <MessageCircle size={18} />
+              <span>Hubungi Guru</span>
             </a>
           )}
         </div>
       </header>
 
-      <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }} className="fade-in">
+      <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }} className="fade-in">
         {/* Banner Informasional */}
         <div style={{
           display: 'flex',
