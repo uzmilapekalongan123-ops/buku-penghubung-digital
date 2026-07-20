@@ -3,7 +3,7 @@ import { supabase } from '../supabaseClient';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import { Modal } from '../components/Modal';
-import { Calendar, UserCheck, Users, Award, Star, Megaphone, LogOut, Edit, Trash2, Plus, MessageCircle, RefreshCw, Search, ShieldAlert } from 'lucide-react';
+import { Calendar, UserCheck, Users, Award, Star, Megaphone, LogOut, Edit, Trash2, Plus, MessageCircle, RefreshCw, Search, ShieldAlert, PlusCircle } from 'lucide-react';
 
 export const AdminDashboard = ({ onLogout }) => {
   const [activeTab, setActiveTab] = useState('attendance'); // 'attendance', 'students', 'badges', 'achievements', 'announcements'
@@ -27,7 +27,7 @@ export const AdminDashboard = ({ onLogout }) => {
 
   // --- State CRUD Siswa ---
   const [isStudentModalOpen, setIsStudentModalOpen] = useState(false);
-  const [currentStudent, setCurrentStudent] = useState(null); // null for new, student object for edit
+  const [currentStudent, setCurrentStudent] = useState(null);
   const [studentForm, setStudentForm] = useState({
     username: '', password: '', nama_siswa: '', alamat: '', nama_ortu: '', wa_ortu: '', token: ''
   });
@@ -39,6 +39,13 @@ export const AdminDashboard = ({ onLogout }) => {
   const [selectedBadgeId, setSelectedBadgeId] = useState('');
   const [badgeNote, setBadgeNote] = useState('');
   const [givingBadge, setGivingBadge] = useState(false);
+
+  // --- State Tambah Katalog Stempel Baru ---
+  const [isAddingNewBadgeCatalog, setIsAddingNewBadgeCatalog] = useState(false);
+  const [newBadgeForm, setNewBadgeForm] = useState({
+    nama_stempel: '', simbol: '⭐', deskripsi: '', grup_stempel: 'Apresiasi'
+  });
+  const [savingNewBadgeCatalog, setSavingNewBadgeCatalog] = useState(false);
 
   // --- State Catatan Prestasi ---
   const [selectedStudentForPrestasi, setSelectedStudentForPrestasi] = useState('');
@@ -141,7 +148,6 @@ export const AdminDashboard = ({ onLogout }) => {
 
   const handleMarkAllPresent = () => {
     const updated = { ...absences };
-    // Hanya tandai hadir untuk siswa yang lolos filter pencarian saat ini
     const filtered = students.filter(s => s.nama_siswa.toLowerCase().includes(attendanceSearchQuery.toLowerCase()));
     filtered.forEach(s => {
       updated[s.id] = { ...updated[s.id], status: 'Hadir' };
@@ -236,14 +242,12 @@ export const AdminDashboard = ({ onLogout }) => {
     }));
   };
 
-  // Aksi Generate Ulang Token untuk SEMUA Siswa sekaligus demi keamanan
   const handleGenerateAllTokens = async () => {
     if (students.length === 0) return;
     if (!window.confirm('Apakah Anda yakin ingin me-reset & membuat ulang token akses publik untuk SEMUA siswa? Tautan laporan publik lama wali murid tidak akan bisa diakses lagi setelah reset ini.')) return;
 
     setGeneratingAllTokens(true);
     try {
-      // Loop untuk mengupdate token setiap siswa
       for (const s of students) {
         const newToken = 'tkn_' + Math.random().toString(36).substring(2, 10);
         const { error } = await supabase
@@ -264,7 +268,7 @@ export const AdminDashboard = ({ onLogout }) => {
     }
   };
 
-  // --- Aksi Stempel ---
+  // --- Aksi Stempel (Beri Stempel & Tambah Katalog Stempel Baru) ---
   const handleGiveBadge = async (e) => {
     e.preventDefault();
     if (!selectedStudentForBadge || !selectedBadgeId) {
@@ -292,6 +296,43 @@ export const AdminDashboard = ({ onLogout }) => {
       alert('Gagal memberikan stempel.');
     } finally {
       setGivingBadge(false);
+    }
+  };
+
+  // Aksi menambahkan stempel baru ke katalog utama (master_badge)
+  const handleAddNewBadgeCatalog = async (e) => {
+    e.preventDefault();
+    if (!newBadgeForm.nama_stempel || !newBadgeForm.simbol || !newBadgeForm.deskripsi) {
+      alert('Lengkapi seluruh field stempel baru.');
+      return;
+    }
+
+    setSavingNewBadgeCatalog(true);
+    try {
+      const { error } = await supabase
+        .from('master_badge')
+        .insert({
+          nama_stempel: newBadgeForm.nama_stempel,
+          simbol: newBadgeForm.simbol,
+          deskripsi: newBadgeForm.deskripsi,
+          grup_stempel: newBadgeForm.grup_stempel
+        });
+
+      if (error) throw error;
+      alert('Stempel baru berhasil ditambahkan ke katalog!');
+      
+      // Reset form & katalog ulang
+      setNewBadgeForm({ nama_stempel: '', simbol: '⭐', deskripsi: '', grup_stempel: 'Apresiasi' });
+      setIsAddingNewBadgeCatalog(false);
+      
+      // Refresh katalog stempel di AdminDashboard
+      const { data: bdgData } = await supabase.from('master_badge').select('*');
+      setMasterBadges(bdgData || []);
+    } catch (err) {
+      console.error('Error saving new master badge:', err);
+      alert('Gagal menambahkan stempel ke katalog.');
+    } finally {
+      setSavingNewBadgeCatalog(false);
     }
   };
 
@@ -361,6 +402,19 @@ export const AdminDashboard = ({ onLogout }) => {
 
     setSavingAnnouncement(true);
     try {
+      // Jika kategori 'Sangat Penting', hapus pengumuman 'Sangat Penting' lama terlebih dahulu agar hanya ada satu
+      if (announcementForm.kategori === 'Sangat Penting') {
+        console.log("Menghapus pengumuman Sangat Penting yang sudah ada...");
+        const { error: delError } = await supabase
+          .from('pengumuman')
+          .delete()
+          .eq('kategori', 'Sangat Penting');
+        
+        if (delError) {
+          console.warn("Gagal menghapus pengumuman Sangat Penting lama:", delError);
+        }
+      }
+
       const { error } = await supabase
         .from('pengumuman')
         .insert({
@@ -415,7 +469,6 @@ export const AdminDashboard = ({ onLogout }) => {
     );
   }
 
-  // Filter siswa berdasarkan input pencarian nama
   const filteredStudentsForAttendance = students.filter(s => 
     s.nama_siswa.toLowerCase().includes(attendanceSearchQuery.toLowerCase())
   );
@@ -552,7 +605,7 @@ export const AdminDashboard = ({ onLogout }) => {
       {/* Tab Contents */}
       <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }} className="fade-in">
         
-        {/* TAB 1: ABSENSI DENGAN PENCARIAN SISWA */}
+        {/* TAB 1: ABSENSI */}
         {activeTab === 'attendance' && (
           <>
             <Card>
@@ -576,7 +629,6 @@ export const AdminDashboard = ({ onLogout }) => {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '16px' }}>
                 <h3 style={{ fontSize: '1.05rem', color: '#1b4332', fontWeight: 600, margin: 0 }}>Daftar Kehadiran</h3>
                 
-                {/* Input Pencarian Siswa di Tab Absen */}
                 <div style={{ position: 'relative' }}>
                   <input
                     type="text"
@@ -666,10 +718,9 @@ export const AdminDashboard = ({ onLogout }) => {
           </>
         )}
 
-        {/* TAB 2: KELOLA SISWA (CRUD, PENCARIAN & RESET SEMUA TOKEN) */}
+        {/* TAB 2: KELOLA SISWA */}
         {activeTab === 'students' && (
           <>
-            {/* Tombol Aksi Masal: Reset Semua Token */}
             <Card style={{ background: '#fff9db', border: '1px solid #ffe066' }}>
               <h3 style={{ fontSize: '1rem', color: '#b58d16', marginBottom: '6px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <ShieldAlert size={18} /> Keamanan: Reset Akses Masal
@@ -711,7 +762,6 @@ export const AdminDashboard = ({ onLogout }) => {
                   </button>
                 </div>
 
-                {/* Input Pencarian Siswa di Tab CRUD Siswa */}
                 <div style={{ position: 'relative' }}>
                   <input
                     type="text"
@@ -777,77 +827,155 @@ export const AdminDashboard = ({ onLogout }) => {
           </>
         )}
 
-        {/* TAB 3: BERI STEMPEL */}
+        {/* TAB 3: BERI STEMPEL & TAMBAH KATALOG STEMPEL */}
         {activeTab === 'badges' && (
-          <Card>
-            <h3 style={{ fontSize: '1.05rem', color: '#1b4332', marginBottom: '16px', fontWeight: 600 }}>Berikan Stempel Apresiasi</h3>
-            <form onSubmit={handleGiveBadge}>
-              <div className="form-group">
-                <label className="form-label" htmlFor="badge-student">Pilih Siswa</label>
-                <select 
-                  id="badge-student"
-                  className="form-input" 
-                  value={selectedStudentForBadge} 
-                  onChange={(e) => setSelectedStudentForBadge(e.target.value)}
-                  required
-                >
-                  <option value="">-- Pilih Siswa --</option>
-                  {students.map(s => (
-                    <option key={s.id} value={s.id}>{s.nama_siswa}</option>
-                  ))}
-                </select>
+          <>
+            {/* Form 1: Tambah Stempel Baru ke Katalog */}
+            <Card style={{ borderLeft: '4px solid var(--accent)' }}>
+              <div 
+                onClick={() => setIsAddingNewBadgeCatalog(!isAddingNewBadgeCatalog)}
+                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
+              >
+                <h3 style={{ fontSize: '1.05rem', color: '#1b4332', fontWeight: 600, margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <PlusCircle size={20} color="var(--accent)" />
+                  Tambah Stempel Baru ke Katalog
+                </h3>
+                <span style={{ fontSize: '1.2rem', color: '#888', fontWeight: 'bold' }}>{isAddingNewBadgeCatalog ? '−' : '+'}</span>
               </div>
 
-              <div className="form-group">
-                <label className="form-label">Pilih Stempel (Medali)</label>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginTop: '6px' }}>
-                  {masterBadges.map(b => {
-                    const isSelected = selectedBadgeId === b.id;
-                    return (
-                      <button
-                        key={b.id}
-                        type="button"
-                        onClick={() => setSelectedBadgeId(b.id)}
-                        style={{
-                          background: isSelected ? 'var(--accent-light)' : 'white',
-                          border: isSelected ? '2px solid var(--accent)' : '1.5px solid rgba(0,0,0,0.1)',
-                          borderRadius: '12px',
-                          padding: '8px 12px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          cursor: 'pointer',
-                          fontFamily: 'inherit',
-                          fontSize: '0.85rem',
-                          fontWeight: 500,
-                          boxShadow: isSelected ? 'var(--shadow-sm)' : 'none'
-                        }}
-                      >
-                        <span style={{ fontSize: '1.2rem' }}>{b.simbol}</span>
-                        <span>{b.nama_stempel}</span>
-                      </button>
-                    );
-                  })}
+              {isAddingNewBadgeCatalog && (
+                <form onSubmit={handleAddNewBadgeCatalog} style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div className="form-group">
+                    <label className="form-label" htmlFor="badge-name">Nama Stempel</label>
+                    <input 
+                      type="text" 
+                      id="badge-name"
+                      className="form-input" 
+                      placeholder="Misal: Sangat Disiplin / Hafalan Lancar"
+                      value={newBadgeForm.nama_stempel}
+                      onChange={(e) => setNewBadgeForm(prev => ({ ...prev, nama_stempel: e.target.value }))}
+                      required
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label" htmlFor="badge-emoji-input">Simbol Emoji</label>
+                    <input 
+                      type="text" 
+                      id="badge-emoji-input"
+                      className="form-input" 
+                      style={{ fontSize: '1.2rem', width: '80px', textAlign: 'center' }}
+                      value={newBadgeForm.simbol}
+                      onChange={(e) => setNewBadgeForm(prev => ({ ...prev, simbol: e.target.value }))}
+                      required
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label" htmlFor="badge-group">Grup Stempel</label>
+                    <select 
+                      id="badge-group"
+                      className="form-input"
+                      value={newBadgeForm.grup_stempel}
+                      onChange={(e) => setNewBadgeForm(prev => ({ ...prev, grup_stempel: e.target.value }))}
+                    >
+                      <option value="Apresiasi">Apresiasi</option>
+                      <option value="Disiplin">Disiplin</option>
+                      <option value="Evaluasi">Evaluasi</option>
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label" htmlFor="badge-desc">Penjelasan / Deskripsi</label>
+                    <textarea 
+                      id="badge-desc"
+                      className="form-input" 
+                      style={{ height: '70px', resize: 'none' }}
+                      placeholder="Diberikan kepada siswa yang..."
+                      value={newBadgeForm.deskripsi}
+                      onChange={(e) => setNewBadgeForm(prev => ({ ...prev, deskripsi: e.target.value }))}
+                      required
+                    />
+                  </div>
+
+                  <Button type="submit" loading={savingNewBadgeCatalog} variant="accent">
+                    Simpan ke Katalog Stempel
+                  </Button>
+                </form>
+              )}
+            </Card>
+
+            {/* Form 2: Berikan Stempel Apresiasi */}
+            <Card>
+              <h3 style={{ fontSize: '1.05rem', color: '#1b4332', marginBottom: '16px', fontWeight: 600 }}>Berikan Stempel Apresiasi</h3>
+              <form onSubmit={handleGiveBadge}>
+                <div className="form-group">
+                  <label className="form-label" htmlFor="badge-student">Pilih Siswa</label>
+                  <select 
+                    id="badge-student"
+                    className="form-input" 
+                    value={selectedStudentForBadge} 
+                    onChange={(e) => setSelectedStudentForBadge(e.target.value)}
+                    required
+                  >
+                    <option value="">-- Pilih Siswa --</option>
+                    {students.map(s => (
+                      <option key={s.id} value={s.id}>{s.nama_siswa}</option>
+                    ))}
+                  </select>
                 </div>
-              </div>
 
-              <div className="form-group" style={{ marginBottom: '20px' }}>
-                <label className="form-label" htmlFor="badge-note">Catatan Tambahan (Opsional)</label>
-                <input 
-                  type="text" 
-                  id="badge-note"
-                  className="form-input" 
-                  placeholder="Misal: Menyelesaikan tugas tepat waktu..."
-                  value={badgeNote} 
-                  onChange={(e) => setBadgeNote(e.target.value)}
-                />
-              </div>
+                <div className="form-group">
+                  <label className="form-label">Pilih Stempel (Medali)</label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginTop: '6px' }}>
+                    {masterBadges.map(b => {
+                      const isSelected = selectedBadgeId === b.id;
+                      return (
+                        <button
+                          key={b.id}
+                          type="button"
+                          onClick={() => setSelectedBadgeId(b.id)}
+                          style={{
+                            background: isSelected ? 'var(--accent-light)' : 'white',
+                            border: isSelected ? '2px solid var(--accent)' : '1.5px solid rgba(0,0,0,0.1)',
+                            borderRadius: '12px',
+                            padding: '8px 12px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            cursor: 'pointer',
+                            fontFamily: 'inherit',
+                            fontSize: '0.85rem',
+                            fontWeight: 500,
+                            boxShadow: isSelected ? 'var(--shadow-sm)' : 'none'
+                          }}
+                        >
+                          <span style={{ fontSize: '1.2rem' }}>{b.simbol}</span>
+                          <span>{b.nama_stempel}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
 
-              <Button type="submit" loading={givingBadge}>
-                Berikan Stempel
-              </Button>
-            </form>
-          </Card>
+                <div className="form-group" style={{ marginBottom: '20px' }}>
+                  <label className="form-label" htmlFor="badge-note">Catatan Tambahan (Opsional)</label>
+                  <input 
+                    type="text" 
+                    id="badge-note"
+                    className="form-input" 
+                    placeholder="Misal: Menyelesaikan tugas tepat waktu..."
+                    value={badgeNote} 
+                    onChange={(e) => setBadgeNote(e.target.value)}
+                  />
+                </div>
+
+                <Button type="submit" loading={givingBadge}>
+                  Berikan Stempel
+                </Button>
+              </form>
+            </Card>
+          </>
         )}
 
         {/* TAB 4: CATATAN PRESTASI */}
@@ -915,7 +1043,7 @@ export const AdminDashboard = ({ onLogout }) => {
           </Card>
         )}
 
-        {/* TAB 5: PENGUMUMAN */}
+        {/* TAB 5: PENGUMUMAN (DENGAN KATEGORI SANGAT PENTING) */}
         {activeTab === 'announcements' && (
           <>
             <Card>
@@ -932,7 +1060,13 @@ export const AdminDashboard = ({ onLogout }) => {
                     <option value="Informasi">Informasi</option>
                     <option value="Kegiatan">Kegiatan</option>
                     <option value="Urgent">Urgent</option>
+                    <option value="Sangat Penting">Sangat Penting</option>
                   </select>
+                  {announcementForm.kategori === 'Sangat Penting' && (
+                    <p style={{ fontSize: '0.72rem', color: '#c62828', fontWeight: 500, marginTop: '4px' }}>
+                      ⚠️ <i>Kategori Sangat Penting hanya boleh ada satu di sistem. Membuat yang baru akan otomatis menghapus yang lama.</i>
+                    </p>
+                  )}
                 </div>
 
                 <div className="form-group">
@@ -975,13 +1109,20 @@ export const AdminDashboard = ({ onLogout }) => {
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
                   {announcements.map((a) => (
-                    <div key={a.id} style={{ borderBottom: '1px solid rgba(0,0,0,0.06)', paddingBottom: '16px', position: 'relative' }}>
+                    <div key={a.id} style={{ 
+                      borderBottom: '1px solid rgba(0,0,0,0.06)', 
+                      paddingBottom: '16px', 
+                      position: 'relative',
+                      borderLeft: a.kategori === 'Sangat Penting' ? '4px solid #c62828' : undefined,
+                      paddingLeft: a.kategori === 'Sangat Penting' ? '12px' : undefined,
+                      background: a.kategori === 'Sangat Penting' ? '#fff5f5' : undefined
+                    }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
                         <span style={{ fontSize: '0.75rem', color: '#888' }}>
                           {new Date(a.tanggal).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
                         </span>
                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                          <span style={{ fontSize: '0.72rem', padding: '2px 8px', borderRadius: '4px', background: '#e8f5e9', color: '#2d6a4f', fontWeight: 600 }}>
+                          <span className={`tag-kategori tag-${a.kategori.toLowerCase().replace(/\s+/g, '-')}`}>
                             {a.kategori}
                           </span>
                           <button 
@@ -993,7 +1134,7 @@ export const AdminDashboard = ({ onLogout }) => {
                           </button>
                         </div>
                       </div>
-                      <p style={{ fontSize: '0.88rem', color: '#333', whiteSpace: 'pre-line', marginBottom: '6px' }}>{a.isi}</p>
+                      <p style={{ fontSize: '0.88rem', color: '#333', whiteSpace: 'pre-line', marginBottom: '6px', fontWeight: a.kategori === 'Sangat Penting' ? 500 : 400 }}>{a.isi}</p>
                       {a.link_luar && (
                         <a href={a.link_luar} target="_blank" rel="noopener noreferrer" style={{ fontSize: '0.78rem', color: '#2d6a4f', textDecoration: 'underline' }}>
                           Link Google Drive

@@ -3,11 +3,11 @@ import { supabase } from '../supabaseClient';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import { Modal } from '../components/Modal';
-import { Calendar, Award, MessageCircle, Star, Share2, LogOut, Send, AlertTriangle, ChevronRight, Info } from 'lucide-react';
+import { Calendar, Award, MessageCircle, Star, Share2, LogOut, Send, AlertTriangle } from 'lucide-react';
 
 export const ParentDashboard = ({ student: initialStudent, onLogout }) => {
   const [activeTab, setActiveTab] = useState('attendance'); // 'attendance', 'badges', 'announcements'
-  const [studentData, setStudentData] = useState(initialStudent); // Menggunakan state agar token terbaru tersinkronisasi
+  const [studentData, setStudentData] = useState(initialStudent); // State untuk data terbaru
   const [attendance, setAttendance] = useState([]);
   const [badges, setBadges] = useState([]);
   const [achievements, setAchievements] = useState([]);
@@ -33,7 +33,11 @@ export const ParentDashboard = ({ student: initialStudent, onLogout }) => {
   const [searchResult, setSearchResult] = useState(null);
 
   // --- State Modal Detail Stempel Terkelompok ---
-  const [selectedBadgeGroup, setSelectedBadgeGroup] = useState(null); // { master: {}, instances: [] }
+  const [selectedBadgeGroup, setSelectedBadgeGroup] = useState(null);
+
+  // --- State Modal Pengumuman Sangat Penting ---
+  const [importantAnnModal, setImportantAnnModal] = useState({ isOpen: false, data: null });
+  const [hasShownImportant, setHasShownImportant] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -43,7 +47,7 @@ export const ParentDashboard = ({ student: initialStudent, onLogout }) => {
     try {
       setLoading(true);
       
-      // 0. Ambil DATA SISWA TERBARU (untuk sinkronisasi token jika digenerate ulang oleh guru)
+      // 0. Ambil data siswa terbaru
       const { data: freshStudent, error: freshError } = await supabase
         .from('siswa')
         .select('*, kelas(*)')
@@ -91,11 +95,22 @@ export const ParentDashboard = ({ student: initialStudent, onLogout }) => {
         .select('*')
         .or(`kelas_id.eq.${initialStudent.kelas_id},kelas_id.is.null`)
         .order('tanggal', { ascending: false });
-      setAnnouncements(annData || []);
+      
+      const announcementsList = annData || [];
+      setAnnouncements(announcementsList);
+
+      // Cek apakah ada pengumuman 'Sangat Penting' untuk di-popup pada pertama kali buka
+      if (!hasShownImportant && announcementsList.length > 0) {
+        const important = announcementsList.find(a => a.kategori === 'Sangat Penting');
+        if (important) {
+          setImportantAnnModal({ isOpen: true, data: important });
+          setHasShownImportant(true);
+        }
+      }
 
       // 5. Ambil semua komentar untuk pengumuman yang tampil
-      if (annData && annData.length > 0) {
-        const annIds = annData.map(a => a.id);
+      if (announcementsList.length > 0) {
+        const annIds = announcementsList.map(a => a.id);
         const { data: cmtData } = await supabase
           .from('komentar')
           .select('*')
@@ -112,7 +127,7 @@ export const ParentDashboard = ({ student: initialStudent, onLogout }) => {
         setComments(grouped);
       }
 
-      // 6. Hitung Rentang Bulan & Tahun yang relevan bagi siswa
+      // 6. Rentang Bulan
       calculateAvailableMonths(records);
 
     } catch (err) {
@@ -261,7 +276,6 @@ export const ParentDashboard = ({ student: initialStudent, onLogout }) => {
     }
   };
 
-  // Mengelompokkan stempel berdasarkan ID master_badge untuk menampilkan angka counter dan riwayat
   const getGroupedBadges = () => {
     const groups = {};
     badges.forEach(b => {
@@ -339,7 +353,6 @@ export const ParentDashboard = ({ student: initialStudent, onLogout }) => {
   };
 
   const handleCopyLink = () => {
-    // Selalu gunakan token terbaru dari state studentData
     const publicLink = `${window.location.origin}${window.location.pathname}?token=${studentData.token}`;
     navigator.clipboard.writeText(publicLink).then(() => {
       setCopySuccess(true);
@@ -352,45 +365,92 @@ export const ParentDashboard = ({ student: initialStudent, onLogout }) => {
     'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
   ];
 
+  // Mengurutkan pengumuman agar 'Sangat Penting' diletakkan di paling atas, kemudian berdasarkan tanggal terbaru
+  const sortedAnnouncements = [...announcements].sort((a, b) => {
+    if (a.kategori === 'Sangat Penting' && b.kategori !== 'Sangat Penting') return -1;
+    if (a.kategori !== 'Sangat Penting' && b.kategori === 'Sangat Penting') return 1;
+    return new Date(b.tanggal) - new Date(a.tanggal);
+  });
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', paddingBottom: '40px' }}>
       
-      {/* Top Navbar */}
-      <header>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+      {/* Top Navbar & Header Area (Mobile-First Layout Reorganization) */}
+      <header style={{ position: 'relative' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', position: 'relative', zIndex: 10 }}>
           <div>
             <h2 style={{ fontSize: '1.4rem', fontWeight: 700, margin: 0 }}>Buku Penghubung</h2>
             <p style={{ opacity: 0.9, fontSize: '0.85rem' }}>{studentData.kelas?.nama_kelas}</p>
           </div>
           <button 
-            onClick={() => {
-              console.log("Menghapus sesi & keluar...");
-              onLogout();
-            }}
+            onClick={onLogout}
             style={{ 
               background: '#ffe2e2', 
               border: '1.5px solid #ffb3b3', 
               color: '#c62828', 
-              padding: '8px 14px', 
+              padding: '6px 12px', 
               borderRadius: '20px', 
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
-              fontSize: '0.85rem',
+              fontSize: '0.8rem',
               fontWeight: 600,
               boxShadow: '0 2px 5px rgba(198, 40, 40, 0.1)'
             }}
           >
-            <LogOut size={16} />
+            <LogOut size={14} />
             Keluar
           </button>
         </div>
 
-        <div style={{ marginTop: '16px', background: 'rgba(255, 255, 255, 0.12)', padding: '12px 16px', borderRadius: '12px', fontSize: '0.9rem' }}>
-          <p><strong>Siswa:</strong> {studentData.nama_siswa}</p>
-          <p><strong>Orang Tua:</strong> {studentData.nama_ortu}</p>
-          <p><strong>Wali Kelas:</strong> {studentData.kelas?.nama_wali}</p>
+        {/* Info User Block: Kiri (Nama Ortu & Anak), Kanan (Tombol WA Ustadzah) */}
+        <div style={{ 
+          background: 'rgba(255, 255, 255, 0.15)', 
+          padding: '14px', 
+          borderRadius: '16px', 
+          fontSize: '0.9rem',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: '12px',
+          position: 'relative',
+          zIndex: 10
+        }}>
+          {/* Kiri */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+            <p style={{ fontWeight: 600 }}>Halo, {studentData.nama_ortu}</p>
+            <p style={{ fontSize: '0.82rem', opacity: 0.95 }}>Ananda: <strong style={{ textDecoration: 'underline' }}>{studentData.nama_siswa}</strong></p>
+          </div>
+          
+          {/* Kanan - Tombol WA Wali Kelas */}
+          {studentData.kelas?.wa_wali && (
+            <a 
+              href={`https://wa.me/${studentData.kelas.wa_wali}?text=Assalamualaikum%20Ustadzah%20${encodeURIComponent(studentData.kelas.nama_wali)}%2C%20saya%20wali%20dari%20${encodeURIComponent(studentData.nama_siswa)}...`} 
+              target="_blank" 
+              rel="noopener noreferrer" 
+              style={{
+                background: '#25d366',
+                color: 'white',
+                padding: '6px 12px',
+                borderRadius: '10px',
+                textDecoration: 'none',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: '0 3px 6px rgba(0,0,0,0.1)',
+                textAlign: 'center',
+                minWidth: '110px'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 700, fontSize: '0.78rem' }}>
+                <MessageCircle size={14} />
+                Hubungi WA
+              </div>
+              <span style={{ fontSize: '0.62rem', fontWeight: 500, opacity: 0.9 }}>{studentData.kelas.nama_wali}</span>
+            </a>
+          )}
         </div>
       </header>
 
@@ -620,7 +680,7 @@ export const ParentDashboard = ({ student: initialStudent, onLogout }) => {
           </>
         )}
 
-        {/* TAB 2: STEMPEL & PRESTASI (PENGELOMPOKAN STEMPEL & COUNTER) */}
+        {/* TAB 2: STEMPEL & PRESTASI */}
         {activeTab === 'badges' && (
           <>
             <Card>
@@ -641,7 +701,6 @@ export const ParentDashboard = ({ student: initialStudent, onLogout }) => {
                     >
                       {item.master.simbol || '⭐'}
                       
-                      {/* Counter Angka di Pojok Kanan Atas */}
                       {item.instances.length > 1 && (
                         <div style={{
                           position: 'absolute',
@@ -689,28 +748,36 @@ export const ParentDashboard = ({ student: initialStudent, onLogout }) => {
           </>
         )}
 
-        {/* Tab 3: Pengumuman & Komentar */}
+        {/* TAB 3: PENGUMUMAN & KOMENTAR DENGAN STYLING KATEGORI BARU */}
         {activeTab === 'announcements' && (
           <>
-            {announcements.length === 0 ? (
+            {sortedAnnouncements.length === 0 ? (
               <Card>
                 <p style={{ color: '#6c757d', fontSize: '0.85rem', fontStyle: 'italic', textAlign: 'center', padding: '15px 0' }}>
                   Tidak ada pengumuman kelas saat ini.
                 </p>
               </Card>
             ) : (
-              announcements.map((a) => {
+              sortedAnnouncements.map((a) => {
                 const words = getWordCount(newComments[a.id] || '');
                 const currentError = commentErrors[a.id];
                 const isTooLong = words > 10;
                 
                 return (
-                  <Card key={a.id}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <Card key={a.id} style={{
+                    // Beri border merah lembut jika sangat penting
+                    borderLeft: a.kategori === 'Sangat Penting' ? '5px solid #c62828' : undefined,
+                    background: a.kategori === 'Sangat Penting' ? '#fff5f5' : undefined
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                       <span style={{ fontSize: '0.75rem', color: '#888' }}>{new Date(a.tanggal).toLocaleDateString('id-ID', { day: 'numeric', month: 'long' })}</span>
-                      <span style={{ fontSize: '0.72rem', padding: '2px 8px', borderRadius: '4px', background: '#e8f5e9', color: '#2d6a4f', fontWeight: 600 }}>{a.kategori}</span>
+                      <span className={`tag-kategori tag-${a.kategori.toLowerCase().replace(/\s+/g, '-')}`}>
+                        {a.kategori}
+                      </span>
                     </div>
-                    <p style={{ fontSize: '0.88rem', color: '#333', whiteSpace: 'pre-line', marginBottom: '8px' }}>{a.isi}</p>
+                    <p style={{ fontSize: '0.88rem', color: '#333', whiteSpace: 'pre-line', marginBottom: '8px', fontWeight: a.kategori === 'Sangat Penting' ? 500 : 400 }}>
+                      {a.isi}
+                    </p>
                     {a.link_luar && (
                       <a 
                         href={a.link_luar} 
@@ -740,12 +807,10 @@ export const ParentDashboard = ({ student: initialStudent, onLogout }) => {
                         )}
                       </div>
 
-                      {/* Teks Himbauan */}
                       <p style={{ fontSize: '0.72rem', color: '#6c757d', marginBottom: '6px', background: '#f8f9fa', padding: '6px', borderRadius: '4px' }}>
                         💡 <i>Tulis komentar dengan sopan (Maksimal 10 kata).</i>
                       </p>
 
-                      {/* Input Komentar Baru */}
                       <div style={{ display: 'flex', gap: '6px', alignItems: 'stretch' }}>
                         <input
                           type="text"
@@ -776,7 +841,6 @@ export const ParentDashboard = ({ student: initialStudent, onLogout }) => {
                         </button>
                       </div>
                       
-                      {/* Counter dan Error Kata */}
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         {currentError ? (
                           <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -797,7 +861,7 @@ export const ParentDashboard = ({ student: initialStudent, onLogout }) => {
           </>
         )}
 
-        {/* Share & WA */}
+        {/* Share Laporan */}
         <Card style={{ marginTop: '10px', background: 'linear-gradient(135deg, #e8f5e9, #c8e6c9)' }}>
           <h3 style={{ fontSize: '1rem', color: '#1b4332', marginBottom: '8px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Share2 size={18} /> Bagikan Laporan Siswa
@@ -813,18 +877,6 @@ export const ParentDashboard = ({ student: initialStudent, onLogout }) => {
             {copySuccess ? '✓ Link Laporan Publik Disalin!' : 'Copy Link Laporan Publik'}
           </Button>
         </Card>
-
-        {studentData.kelas?.wa_wali && (
-          <a 
-            href={`https://wa.me/${studentData.kelas.wa_wali}?text=Assalamualaikum%20Ustadz/Ustadzah%2C%20saya%20wali%20dari%20${encodeURIComponent(studentData.nama_siswa)}...`} 
-            target="_blank" 
-            rel="noopener noreferrer" 
-            className="wa-float"
-          >
-            <MessageCircle size={18} />
-            Hubungi Wali Kelas via WhatsApp
-          </a>
-        )}
       </div>
 
       {/* MODAL 1: Detail Ketidakhadiran */}
@@ -858,7 +910,7 @@ export const ParentDashboard = ({ student: initialStudent, onLogout }) => {
         </div>
       </Modal>
 
-      {/* MODAL 2: Detail Stempel Terkelompok dengan Timeline Riwayat */}
+      {/* MODAL 2: Detail Stempel Terkelompok */}
       <Modal 
         isOpen={!!selectedBadgeGroup} 
         onClose={() => setSelectedBadgeGroup(null)} 
@@ -889,7 +941,6 @@ export const ParentDashboard = ({ student: initialStudent, onLogout }) => {
               </p>
             </div>
 
-            {/* Riwayat Kapan Saja Didapatkan */}
             <div style={{ borderTop: '1px solid rgba(0,0,0,0.08)', paddingTop: '16px' }}>
               <h5 style={{ color: '#1b4332', fontSize: '0.92rem', fontWeight: 600, marginBottom: '10px' }}>
                 Riwayat Penerimaan (Total: {selectedBadgeGroup.instances.length} Kali)
@@ -907,6 +958,51 @@ export const ParentDashboard = ({ student: initialStudent, onLogout }) => {
                 ))}
               </div>
             </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* MODAL 3: POP-UP Pengumuman SANGAT PENTING */}
+      <Modal
+        isOpen={importantAnnModal.isOpen}
+        onClose={() => setImportantAnnModal({ isOpen: false, data: null })}
+        title="📢 PENGUMUMAN SANGAT PENTING"
+      >
+        {importantAnnModal.data && (
+          <div style={{ padding: '8px 0' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <span style={{ fontSize: '0.78rem', color: '#888', fontWeight: 500 }}>
+                {new Date(importantAnnModal.data.tanggal).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+              </span>
+              <span className="tag-kategori tag-sangat-penting" style={{ fontSize: '0.7rem' }}>Sangat Penting</span>
+            </div>
+            <p style={{ 
+              fontSize: '1rem', 
+              color: '#c62828', 
+              fontWeight: 600, 
+              lineHeight: 1.5, 
+              whiteSpace: 'pre-line',
+              background: '#ffebee',
+              padding: '16px',
+              borderRadius: '12px',
+              border: '1.5px solid #ffb3b3',
+              marginBottom: '16px'
+            }}>
+              {importantAnnModal.data.isi}
+            </p>
+            {importantAnnModal.data.link_luar && (
+              <a 
+                href={importantAnnModal.data.link_luar} 
+                target="_blank" 
+                rel="noopener noreferrer" 
+                style={{ display: 'inline-block', fontSize: '0.85rem', color: '#2d6a4f', textDecoration: 'underline', fontWeight: 700, marginBottom: '16px' }}
+              >
+                🔗 Buka Tautan Foto Kegiatan (Google Drive)
+              </a>
+            )}
+            <Button onClick={() => setImportantAnnModal({ isOpen: false, data: null })} variant="primary">
+              Saya Mengerti & Tutup
+            </Button>
           </div>
         )}
       </Modal>
