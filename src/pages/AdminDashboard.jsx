@@ -39,7 +39,11 @@ export const AdminDashboard = ({ onLogout }) => {
   const [selectedBadgeId, setSelectedBadgeId] = useState('');
   const [badgeNote, setBadgeNote] = useState('');
   const [givingBadge, setGivingBadge] = useState(false);
-  const [activeBadgeGroupFilter, setActiveBadgeGroupFilter] = useState('Semua');
+  const [activeBadgeGroupFilter, setActiveBadgeGroupFilter] = useState('Semmua');
+
+  // --- State Stempel yang Dimiliki Siswa Terpilih (Dapat Ditarik/Dihapus) ---
+  const [givenBadges, setGivenBadges] = useState([]);
+  const [loadingGivenBadges, setLoadingGivenBadges] = useState(false);
 
   // --- State Tambah Katalog Stempel Baru ---
   const [isAddingNewBadgeCatalog, setIsAddingNewBadgeCatalog] = useState(false);
@@ -70,6 +74,15 @@ export const AdminDashboard = ({ onLogout }) => {
       fetchAttendanceForDate(attendanceDate);
     }
   }, [activeTab, attendanceDate, students]);
+
+  // Efek memuat riwayat stempel siswa secara dinamis saat siswa dipilih
+  useEffect(() => {
+    if (selectedStudentForBadge) {
+      fetchGivenBadges(selectedStudentForBadge);
+    } else {
+      setGivenBadges([]);
+    }
+  }, [selectedStudentForBadge]);
 
   const fetchInitialData = async () => {
     try {
@@ -271,7 +284,25 @@ export const AdminDashboard = ({ onLogout }) => {
     }
   };
 
-  // --- Aksi Stempel (Beri Stempel & Tambah Katalog Stempel Baru) ---
+  // --- Aksi Stempel (Beri, Tarik, Tambah Katalog, Hapus Katalog) ---
+  const fetchGivenBadges = async (studentId) => {
+    try {
+      setLoadingGivenBadges(true);
+      const { data, error } = await supabase
+        .from('catatan_stempel')
+        .select('*, master_badge(*)')
+        .eq('siswa_id', studentId)
+        .order('tanggal_waktu', { ascending: false });
+      
+      if (error) throw error;
+      setGivenBadges(data || []);
+    } catch (err) {
+      console.error('Error fetching given badges:', err);
+    } finally {
+      setLoadingGivenBadges(false);
+    }
+  };
+
   const handleGiveBadge = async (e) => {
     e.preventDefault();
     if (!selectedStudentForBadge || !selectedBadgeId) {
@@ -291,9 +322,9 @@ export const AdminDashboard = ({ onLogout }) => {
 
       if (error) throw error;
       alert('Stempel apresiasi berhasil diberikan!');
-      setSelectedStudentForBadge('');
       setSelectedBadgeId('');
       setBadgeNote('');
+      fetchGivenBadges(selectedStudentForBadge); // Refresh riwayat stempel siswa terpilih
     } catch (err) {
       console.error(err);
       alert('Gagal memberikan stempel.');
@@ -302,16 +333,31 @@ export const AdminDashboard = ({ onLogout }) => {
     }
   };
 
-  // Fungsi membaca file gambar kustom dan merubah ke Base64 (Maksimal 50 KB)
+  const handleDeleteGivenBadge = async (id) => {
+    if (!window.confirm('Apakah Anda yakin ingin menarik/menghapus pemberian stempel ini dari ananda?')) return;
+    try {
+      const { error } = await supabase
+        .from('catatan_stempel')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+      alert('Stempel berhasil ditarik!');
+      fetchGivenBadges(selectedStudentForBadge);
+    } catch (err) {
+      console.error(err);
+      alert('Gagal menarik stempel.');
+    }
+  };
+
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
     setUploadError('');
     if (!file) return;
 
-    // Validasi Ukuran File (50 KB = 50 * 1024 Bytes)
     if (file.size > 50 * 1024) {
       setUploadError('Ukuran berkas melebihi batas 50 KB! Silakan kompres gambar atau pilih gambar lain.');
-      e.target.value = null; // reset input
+      e.target.value = null;
       return;
     }
 
@@ -319,8 +365,8 @@ export const AdminDashboard = ({ onLogout }) => {
     reader.onload = () => {
       setNewBadgeForm(prev => ({
         ...prev,
-        gambar_url: reader.result, // base64 string
-        simbol: '' // hapus emoji simbol jika menggunakan gambar kustom
+        gambar_url: reader.result,
+        simbol: ''
       }));
     };
     reader.onerror = () => {
@@ -370,12 +416,10 @@ export const AdminDashboard = ({ onLogout }) => {
       if (error) throw error;
       alert('Stempel baru berhasil ditambahkan ke katalog!');
       
-      // Reset form & katalog ulang
       setNewBadgeForm({ nama_stempel: '', simbol: '⭐', gambar_url: '', deskripsi: '', grup_stempel: 'Apresiasi', custom_grup_stempel: '' });
       setIsAddingNewBadgeCatalog(false);
       setIconMode('emoji');
       
-      // Refresh katalog stempel di AdminDashboard
       const { data: bdgData } = await supabase.from('master_badge').select('*');
       setMasterBadges(bdgData || []);
     } catch (err) {
@@ -383,6 +427,35 @@ export const AdminDashboard = ({ onLogout }) => {
       alert('Gagal menambahkan stempel ke katalog.');
     } finally {
       setSavingNewBadgeCatalog(false);
+    }
+  };
+
+  const handleDeleteMasterBadge = async (badgeId, badgeName) => {
+    if (!window.confirm(`⚠️ PERINGATAN: Apakah Anda yakin ingin menghapus stempel "${badgeName}" dari katalog? \n\nTindakan ini secara otomatis akan menghapus stempel ini dari seluruh siswa yang telah mendapatkannya.`)) return;
+    try {
+      const { error } = await supabase
+        .from('master_badge')
+        .delete()
+        .eq('id', badgeId);
+
+      if (error) throw error;
+      alert(`Stempel "${badgeName}" berhasil dihapus dari katalog!`);
+
+      if (selectedBadgeId === badgeId) {
+        setSelectedBadgeId('');
+      }
+
+      // Refresh katalog
+      const { data: bdgData } = await supabase.from('master_badge').select('*');
+      setMasterBadges(bdgData || []);
+
+      // Refresh riwayat stempel siswa terpilih
+      if (selectedStudentForBadge) {
+        fetchGivenBadges(selectedStudentForBadge);
+      }
+    } catch (err) {
+      console.error('Error deleting master badge:', err);
+      alert('Gagal menghapus stempel dari katalog.');
     }
   };
 
@@ -417,7 +490,7 @@ export const AdminDashboard = ({ onLogout }) => {
     }
   };
 
-  // --- Aksi Pengumuman & Komentar ---
+  // --- Aksi Pengumuman ---
   const fetchAnnouncements = async () => {
     try {
       const { data } = await supabase
@@ -526,10 +599,8 @@ export const AdminDashboard = ({ onLogout }) => {
     s.nama_siswa.toLowerCase().includes(studentSearchQuery.toLowerCase())
   );
 
-  // Ambil daftar grup stempel unik dari master_badge untuk filtering di panel pemberian stempel
   const dbBadgeGroups = Array.from(new Set(masterBadges.map(b => b.grup_stempel).filter(Boolean)));
 
-  // Filter katalog stempel yang akan ditampilkan untuk dipilih guru
   const filteredMasterBadgesForGiving = activeBadgeGroupFilter === 'Semua'
     ? masterBadges
     : masterBadges.filter(b => b.grup_stempel === activeBadgeGroupFilter);
@@ -887,7 +958,7 @@ export const AdminDashboard = ({ onLogout }) => {
         {/* TAB 3: BERI STEMPEL & TAMBAH STEMPEL */}
         {activeTab === 'badges' && (
           <>
-            {/* Form 1: Tambah Stempel Baru ke Katalog (Mendukung Gambar Kustom Maks 50 KB & Grup Dinamis) */}
+            {/* Form 1: Tambah Stempel Baru ke Katalog */}
             <Card style={{ borderLeft: '4px solid var(--accent)' }}>
               <div 
                 onClick={() => setIsAddingNewBadgeCatalog(!isAddingNewBadgeCatalog)}
@@ -915,7 +986,6 @@ export const AdminDashboard = ({ onLogout }) => {
                     />
                   </div>
 
-                  {/* Jenis Simbol (Emoji vs Upload Gambar) */}
                   <div className="form-group">
                     <label className="form-label">Jenis Simbol Stempel</label>
                     <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
@@ -1006,7 +1076,6 @@ export const AdminDashboard = ({ onLogout }) => {
                     </div>
                   )}
 
-                  {/* Grup Stempel dengan Opsi Tambah Dinamis */}
                   <div className="form-group">
                     <label className="form-label" htmlFor="badge-group">Grup Stempel</label>
                     <select 
@@ -1060,7 +1129,7 @@ export const AdminDashboard = ({ onLogout }) => {
               )}
             </Card>
 
-            {/* Form 2: Berikan Stempel Apresiasi (Dengan filter/sorting grup tag) */}
+            {/* Form 2: Berikan Stempel Apresiasi */}
             <Card>
               <h3 style={{ fontSize: '1.05rem', color: '#1b4332', marginBottom: '14px', fontWeight: 600 }}>Berikan Stempel Apresiasi</h3>
               
@@ -1081,7 +1150,6 @@ export const AdminDashboard = ({ onLogout }) => {
                   </select>
                 </div>
 
-                {/* Filter Tag Grup Stempel */}
                 <div className="form-group">
                   <label className="form-label">Saring Grup Stempel</label>
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '6px', marginBottom: '12px' }}>
@@ -1116,40 +1184,64 @@ export const AdminDashboard = ({ onLogout }) => {
                       Tidak ada stempel dalam grup "{activeBadgeGroupFilter}".
                     </p>
                   ) : (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginTop: '6px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '6px' }}>
                       {filteredMasterBadgesForGiving.map(b => {
                         const isSelected = selectedBadgeId === b.id;
                         return (
-                          <button
-                            key={b.id}
-                            type="button"
-                            onClick={() => setSelectedBadgeId(b.id)}
-                            style={{
-                              background: isSelected ? 'var(--accent-light)' : 'white',
-                              border: isSelected ? '2px solid var(--accent)' : '1.5px solid rgba(0,0,0,0.1)',
-                              borderRadius: '12px',
-                              padding: '8px 12px',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '6px',
-                              cursor: 'pointer',
-                              fontFamily: 'inherit',
-                              fontSize: '0.85rem',
-                              fontWeight: 500,
-                              boxShadow: isSelected ? 'var(--shadow-sm)' : 'none'
-                            }}
-                          >
-                            {b.gambar_url ? (
-                              <img 
-                                src={b.gambar_url} 
-                                alt={b.nama_stempel} 
-                                style={{ width: '22px', height: '22px', objectFit: 'contain', borderRadius: '50%' }} 
-                              />
-                            ) : (
-                              <span style={{ fontSize: '1.2rem' }}>{b.simbol || '⭐'}</span>
-                            )}
-                            <span>{b.nama_stempel}</span>
-                          </button>
+                          <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <button
+                              type="button"
+                              onClick={() => setSelectedBadgeId(b.id)}
+                              style={{
+                                background: isSelected ? 'var(--accent-light)' : 'white',
+                                border: isSelected ? '2px solid var(--accent)' : '1.5px solid rgba(0,0,0,0.1)',
+                                borderRadius: '12px',
+                                padding: '8px 12px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                cursor: 'pointer',
+                                fontFamily: 'inherit',
+                                fontSize: '0.85rem',
+                                fontWeight: 500,
+                                boxShadow: isSelected ? 'var(--shadow-sm)' : 'none',
+                                flex: 1,
+                                textAlign: 'left'
+                              }}
+                            >
+                              {b.gambar_url ? (
+                                <img 
+                                  src={b.gambar_url} 
+                                  alt={b.nama_stempel} 
+                                  style={{ width: '22px', height: '22px', objectFit: 'contain', borderRadius: '50%' }} 
+                                />
+                              ) : (
+                                <span style={{ fontSize: '1.2rem' }}>{b.simbol || '⭐'}</span>
+                              )}
+                              <span>{b.nama_stempel}</span>
+                            </button>
+                            
+                            {/* Tombol Hapus Katalog Stempel */}
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteMasterBadge(b.id, b.nama_stempel)}
+                              style={{
+                                background: '#ffe2e2',
+                                border: '1px solid #ffb3b3',
+                                borderRadius: '8px',
+                                width: '34px',
+                                height: '34px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: 'pointer',
+                                color: '#c62828'
+                              }}
+                              title="Hapus stempel ini dari katalog"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
                         );
                       })}
                     </div>
@@ -1172,6 +1264,62 @@ export const AdminDashboard = ({ onLogout }) => {
                   Berikan Stempel
                 </Button>
               </form>
+
+              {/* Riwayat Stempel Siswa Terpilih (Untuk Menarik/Menghapus Stempel yang Diberikan) */}
+              {selectedStudentForBadge && (
+                <div style={{ marginTop: '24px', borderTop: '1px solid rgba(0,0,0,0.08)', paddingTop: '16px' }}>
+                  <h4 style={{ fontSize: '0.92rem', color: '#1b4332', fontWeight: 600, marginBottom: '10px' }}>
+                    Riwayat Stempel Siswa Ini (Dapat Ditarik/Dihapus)
+                  </h4>
+                  {loadingGivenBadges ? (
+                    <p style={{ fontSize: '0.8rem', color: '#888' }}>Memuat riwayat stempel...</p>
+                  ) : givenBadges.length === 0 ? (
+                    <p style={{ fontSize: '0.8rem', color: '#888', fontStyle: 'italic' }}>Siswa ini belum memiliki stempel.</p>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '180px', overflowY: 'auto' }}>
+                      {givenBadges.map((gb) => (
+                        <div 
+                          key={gb.id} 
+                          style={{ 
+                            background: '#f8f9fa', 
+                            padding: '8px 12px', 
+                            borderRadius: '8px', 
+                            display: 'flex', 
+                            justifyContent: 'space-between', 
+                            alignItems: 'center',
+                            fontSize: '0.8rem' 
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontSize: '1.2rem', display: 'flex', alignItems: 'center' }}>
+                              {gb.master_badge?.gambar_url ? (
+                                <img src={gb.master_badge.gambar_url} alt="" style={{ width: '24px', height: '24px', objectFit: 'contain', borderRadius: '50%' }} />
+                              ) : (
+                                gb.master_badge?.simbol || '⭐'
+                              )}
+                            </span>
+                            <div>
+                              <span style={{ fontWeight: 600, color: '#1b4332' }}>{gb.master_badge?.nama_stempel}</span>
+                              <span style={{ fontSize: '0.7rem', color: '#888', marginLeft: '6px' }}>
+                                ({new Date(gb.tanggal_waktu).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })})
+                              </span>
+                              {gb.catatan && <div style={{ color: '#555', fontStyle: 'italic', fontSize: '0.75rem', marginTop: '2px' }}>"{gb.catatan}"</div>}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteGivenBadge(gb.id)}
+                            style={{ background: 'none', border: 'none', color: '#c62828', cursor: 'pointer', padding: '4px' }}
+                            title="Tarik stempel ini dari siswa"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </Card>
           </>
         )}
