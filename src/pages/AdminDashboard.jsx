@@ -3,7 +3,7 @@ import { supabase } from '../supabaseClient';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import { Modal } from '../components/Modal';
-import { Calendar, UserCheck, Users, Award, Star, Megaphone, LogOut, Edit, Trash2, Plus, MessageCircle, RefreshCw } from 'lucide-react';
+import { Calendar, UserCheck, Users, Award, Star, Megaphone, LogOut, Edit, Trash2, Plus, MessageCircle, RefreshCw, Search, ShieldAlert } from 'lucide-react';
 
 export const AdminDashboard = ({ onLogout }) => {
   const [activeTab, setActiveTab] = useState('attendance'); // 'attendance', 'students', 'badges', 'achievements', 'announcements'
@@ -16,6 +16,10 @@ export const AdminDashboard = ({ onLogout }) => {
   const [waliName, setWaliName] = useState('');
   const [waliWa, setWaliWa] = useState('');
 
+  // --- Search Query State ---
+  const [attendanceSearchQuery, setAttendanceSearchQuery] = useState('');
+  const [studentSearchQuery, setStudentSearchQuery] = useState('');
+
   // --- State Absensi ---
   const [absences, setAbsences] = useState({}); // { studentId: { status: 'Hadir', keterangan: '' } }
   const [attendanceDate, setAttendanceDate] = useState(new Date().toISOString().split('T')[0]);
@@ -27,6 +31,7 @@ export const AdminDashboard = ({ onLogout }) => {
   const [studentForm, setStudentForm] = useState({
     username: '', password: '', nama_siswa: '', alamat: '', nama_ortu: '', wa_ortu: '', token: ''
   });
+  const [generatingAllTokens, setGeneratingAllTokens] = useState(false);
 
   // --- State Beri Stempel ---
   const [masterBadges, setMasterBadges] = useState([]);
@@ -60,14 +65,12 @@ export const AdminDashboard = ({ onLogout }) => {
     try {
       setLoading(true);
       
-      // 1. Ambil data kelas (ambil kelas pertama yang ada)
       const { data: clsData } = await supabase.from('kelas').select('*');
       if (clsData && clsData.length > 0) {
         setClassInfo(clsData[0]);
         setWaliName(clsData[0].nama_wali);
         setWaliWa(clsData[0].wa_wali);
         
-        // 2. Ambil data siswa
         const { data: stdData } = await supabase
           .from('siswa')
           .select('*')
@@ -76,11 +79,9 @@ export const AdminDashboard = ({ onLogout }) => {
         setStudents(stdData || []);
       }
 
-      // 3. Ambil data stempel master
       const { data: bdgData } = await supabase.from('master_badge').select('*');
       setMasterBadges(bdgData || []);
 
-      // 4. Ambil pengumuman
       fetchAnnouncements();
 
     } catch (err) {
@@ -116,11 +117,9 @@ export const AdminDashboard = ({ onLogout }) => {
         .eq('tanggal', date);
 
       const absMap = {};
-      // Set default semua Hadir
       students.forEach(s => {
         absMap[s.id] = { status: 'Hadir', keterangan: '' };
       });
-      // Timpa dengan data dari database jika ada
       data?.forEach(a => {
         absMap[a.siswa_id] = { status: a.status, keterangan: a.keterangan || '' };
       });
@@ -142,7 +141,9 @@ export const AdminDashboard = ({ onLogout }) => {
 
   const handleMarkAllPresent = () => {
     const updated = { ...absences };
-    students.forEach(s => {
+    // Hanya tandai hadir untuk siswa yang lolos filter pencarian saat ini
+    const filtered = students.filter(s => s.nama_siswa.toLowerCase().includes(attendanceSearchQuery.toLowerCase()));
+    filtered.forEach(s => {
       updated[s.id] = { ...updated[s.id], status: 'Hadir' };
     });
     setAbsences(updated);
@@ -158,7 +159,6 @@ export const AdminDashboard = ({ onLogout }) => {
         keterangan: absences[studentId].keterangan
       }));
 
-      // Di Supabase, kita gunakan upsert dengan constraint (siswa_id, tanggal)
       const { error } = await supabase
         .from('absensi')
         .upsert(upsertData, { onConflict: 'siswa_id,tanggal' });
@@ -197,14 +197,12 @@ export const AdminDashboard = ({ onLogout }) => {
     e.preventDefault();
     try {
       if (currentStudent) {
-        // Edit Siswa
         const { error } = await supabase
           .from('siswa')
           .update(studentForm)
           .eq('id', currentStudent.id);
         if (error) throw error;
       } else {
-        // Tambah Siswa Baru
         const { error } = await supabase
           .from('siswa')
           .insert({ ...studentForm, kelas_id: classInfo.id });
@@ -236,6 +234,34 @@ export const AdminDashboard = ({ onLogout }) => {
       ...prev,
       token: 'tkn_' + Math.random().toString(36).substring(2, 10)
     }));
+  };
+
+  // Aksi Generate Ulang Token untuk SEMUA Siswa sekaligus demi keamanan
+  const handleGenerateAllTokens = async () => {
+    if (students.length === 0) return;
+    if (!window.confirm('Apakah Anda yakin ingin me-reset & membuat ulang token akses publik untuk SEMUA siswa? Tautan laporan publik lama wali murid tidak akan bisa diakses lagi setelah reset ini.')) return;
+
+    setGeneratingAllTokens(true);
+    try {
+      // Loop untuk mengupdate token setiap siswa
+      for (const s of students) {
+        const newToken = 'tkn_' + Math.random().toString(36).substring(2, 10);
+        const { error } = await supabase
+          .from('siswa')
+          .update({ token: newToken })
+          .eq('id', s.id);
+        
+        if (error) throw error;
+      }
+      
+      alert('Berhasil membuat ulang semua token akses siswa!');
+      fetchInitialData();
+    } catch (err) {
+      console.error('Error generating all tokens:', err);
+      alert('Terjadi kesalahan saat membuat ulang token akses.');
+    } finally {
+      setGeneratingAllTokens(false);
+    }
   };
 
   // --- Aksi Stempel ---
@@ -389,12 +415,21 @@ export const AdminDashboard = ({ onLogout }) => {
     );
   }
 
+  // Filter siswa berdasarkan input pencarian nama
+  const filteredStudentsForAttendance = students.filter(s => 
+    s.nama_siswa.toLowerCase().includes(attendanceSearchQuery.toLowerCase())
+  );
+
+  const filteredStudentsForList = students.filter(s => 
+    s.nama_siswa.toLowerCase().includes(studentSearchQuery.toLowerCase())
+  );
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', paddingBottom: '40px' }}>
       
       {/* Top Navbar */}
       <header>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
           <div>
             <h2 style={{ fontSize: '1.4rem', fontWeight: 700, margin: 0 }}>Dasbor Wali Kelas</h2>
             <p style={{ opacity: 0.9, fontSize: '0.85rem' }}>{classInfo?.nama_kelas || 'Nama Kelas'}</p>
@@ -402,19 +437,23 @@ export const AdminDashboard = ({ onLogout }) => {
           <button 
             onClick={onLogout} 
             style={{ 
-              background: 'rgba(255,255,255,0.15)', 
-              border: 'none', 
-              color: 'white', 
-              padding: '8px', 
-              borderRadius: '50%', 
+              background: '#ffe2e2', 
+              border: '1.5px solid #ffb3b3', 
+              color: '#c62828', 
+              padding: '8px 14px', 
+              borderRadius: '20px', 
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center'
+              gap: '6px',
+              fontSize: '0.85rem',
+              fontWeight: 600,
+              boxShadow: '0 2px 5px rgba(198, 40, 40, 0.1)'
             }}
             title="Keluar"
           >
-            <LogOut size={18} />
+            <LogOut size={16} />
+            Keluar
           </button>
         </div>
 
@@ -513,7 +552,7 @@ export const AdminDashboard = ({ onLogout }) => {
       {/* Tab Contents */}
       <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }} className="fade-in">
         
-        {/* TAB 1: ABSENSI */}
+        {/* TAB 1: ABSENSI DENGAN PENCARIAN SISWA */}
         {activeTab === 'attendance' && (
           <>
             <Card>
@@ -529,25 +568,44 @@ export const AdminDashboard = ({ onLogout }) => {
                 />
               </div>
               <Button onClick={handleMarkAllPresent} variant="outline" style={{ fontSize: '0.88rem' }}>
-                Hadirkan Semua Siswa
+                Hadirkan Semua Siswa (Sesuai Pencarian)
               </Button>
             </Card>
 
             <Card>
-              <h3 style={{ fontSize: '1.05rem', color: '#1b4332', marginBottom: '14px', fontWeight: 600 }}>Daftar Kehadiran</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '16px' }}>
+                <h3 style={{ fontSize: '1.05rem', color: '#1b4332', fontWeight: 600, margin: 0 }}>Daftar Kehadiran</h3>
+                
+                {/* Input Pencarian Siswa di Tab Absen */}
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type="text"
+                    className="form-input"
+                    style={{ paddingLeft: '36px', fontSize: '0.85rem' }}
+                    placeholder="Cari nama siswa untuk diabsen..."
+                    value={attendanceSearchQuery}
+                    onChange={(e) => setAttendanceSearchQuery(e.target.value)}
+                  />
+                  <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#888' }} />
+                </div>
+              </div>
+
               {students.length === 0 ? (
                 <p style={{ color: '#6c757d', fontSize: '0.85rem', fontStyle: 'italic', textAlign: 'center', padding: '15px 0' }}>
                   Belum ada siswa terdaftar. Tambahkan siswa terlebih dahulu di tab 'Siswa'.
                 </p>
+              ) : filteredStudentsForAttendance.length === 0 ? (
+                <p style={{ color: '#6c757d', fontSize: '0.85rem', fontStyle: 'italic', textAlign: 'center', padding: '15px 0' }}>
+                  Siswa dengan nama "{attendanceSearchQuery}" tidak ditemukan.
+                </p>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  {students.map((s) => {
+                  {filteredStudentsForAttendance.map((s) => {
                     const studentAbsence = absences[s.id] || { status: 'Hadir', keterangan: '' };
                     return (
                       <div key={s.id} style={{ borderBottom: '1px solid rgba(0,0,0,0.05)', paddingBottom: '14px' }}>
                         <div style={{ fontWeight: 600, fontSize: '0.92rem', marginBottom: '8px', color: '#1b4332' }}>{s.nama_siswa}</div>
                         
-                        {/* Selector Kehadiran */}
                         <div style={{ display: 'flex', gap: '6px', marginBottom: '8px' }}>
                           {['Hadir', 'Izin', 'Sakit', 'Alpa'].map((st) => {
                             const isSelected = studentAbsence.status === st;
@@ -585,7 +643,6 @@ export const AdminDashboard = ({ onLogout }) => {
                           })}
                         </div>
 
-                        {/* Input Keterangan jika non-Hadir */}
                         {studentAbsence.status !== 'Hadir' && (
                           <input 
                             type="text" 
@@ -609,76 +666,115 @@ export const AdminDashboard = ({ onLogout }) => {
           </>
         )}
 
-        {/* TAB 2: KELOLA SISWA (CRUD) */}
+        {/* TAB 2: KELOLA SISWA (CRUD, PENCARIAN & RESET SEMUA TOKEN) */}
         {activeTab === 'students' && (
-          <Card>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h3 style={{ fontSize: '1.05rem', color: '#1b4332', fontWeight: 600 }}>Kelola Data Siswa</h3>
-              <button 
-                onClick={() => handleOpenStudentModal()}
-                style={{
-                  background: '#2d6a4f',
-                  border: 'none',
-                  color: 'white',
-                  borderRadius: '50%',
-                  width: '32px',
-                  height: '32px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer'
-                }}
-                title="Tambah Siswa Baru"
-              >
-                <Plus size={18} />
-              </button>
-            </div>
-
-            {students.length === 0 ? (
-              <p style={{ color: '#6c757d', fontSize: '0.85rem', fontStyle: 'italic', textAlign: 'center', padding: '15px 0' }}>
-                Belum ada siswa terdaftar. Klik tombol (+) di atas untuk menambahkan.
+          <>
+            {/* Tombol Aksi Masal: Reset Semua Token */}
+            <Card style={{ background: '#fff9db', border: '1px solid #ffe066' }}>
+              <h3 style={{ fontSize: '1rem', color: '#b58d16', marginBottom: '6px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <ShieldAlert size={18} /> Keamanan: Reset Akses Masal
+              </h3>
+              <p style={{ fontSize: '0.78rem', color: '#666', marginBottom: '12px', lineHeight: 1.4 }}>
+                Reset semua token akses siswa sekaligus. Langkah ini membuat seluruh tautan laporan publik yang dibagikan sebelumnya tidak valid demi keamanan berkala.
               </p>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {students.map((s) => (
-                  <div 
-                    key={s.id} 
-                    style={{ 
-                      background: '#f8f9fa', 
-                      padding: '12px', 
-                      borderRadius: '10px', 
-                      display: 'flex', 
-                      justifyContent: 'space-between', 
+              <Button 
+                onClick={handleGenerateAllTokens} 
+                variant="accent" 
+                loading={generatingAllTokens}
+                style={{ padding: '10px 16px', fontSize: '0.85rem' }}
+              >
+                Ganti Token Semua Siswa
+              </Button>
+            </Card>
+
+            <Card>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <h3 style={{ fontSize: '1.05rem', color: '#1b4332', fontWeight: 600, margin: 0 }}>Kelola Data Siswa</h3>
+                  <button 
+                    onClick={() => handleOpenStudentModal()}
+                    style={{
+                      background: '#2d6a4f',
+                      border: 'none',
+                      color: 'white',
+                      borderRadius: '50%',
+                      width: '32px',
+                      height: '32px',
+                      display: 'flex',
                       alignItems: 'center',
-                      fontSize: '0.85rem'
+                      justifyContent: 'center',
+                      cursor: 'pointer'
                     }}
+                    title="Tambah Siswa Baru"
                   >
-                    <div>
-                      <div style={{ fontWeight: 600, color: '#1b4332', fontSize: '0.9rem' }}>{s.nama_siswa}</div>
-                      <div style={{ color: '#6c757d', marginTop: '2px' }}>User: {s.username} | Pass: {s.password}</div>
-                      <div style={{ color: '#888', fontSize: '0.75rem', marginTop: '2px' }}>Public Token: {s.token}</div>
-                    </div>
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                      <button 
-                        onClick={() => handleOpenStudentModal(s)} 
-                        style={{ background: 'none', border: 'none', color: '#2d6a4f', cursor: 'pointer' }}
-                        title="Edit Siswa"
-                      >
-                        <Edit size={16} />
-                      </button>
-                      <button 
-                        onClick={() => handleDeleteStudent(s.id)} 
-                        style={{ background: 'none', border: 'none', color: '#c62828', cursor: 'pointer' }}
-                        title="Hapus Siswa"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                    <Plus size={18} />
+                  </button>
+                </div>
+
+                {/* Input Pencarian Siswa di Tab CRUD Siswa */}
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type="text"
+                    className="form-input"
+                    style={{ paddingLeft: '36px', fontSize: '0.85rem' }}
+                    placeholder="Cari siswa berdasarkan nama..."
+                    value={studentSearchQuery}
+                    onChange={(e) => setStudentSearchQuery(e.target.value)}
+                  />
+                  <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#888' }} />
+                </div>
               </div>
-            )}
-          </Card>
+
+              {students.length === 0 ? (
+                <p style={{ color: '#6c757d', fontSize: '0.85rem', fontStyle: 'italic', textAlign: 'center', padding: '15px 0' }}>
+                  Belum ada siswa terdaftar. Klik tombol (+) di atas untuk menambahkan.
+                </p>
+              ) : filteredStudentsForList.length === 0 ? (
+                <p style={{ color: '#6c757d', fontSize: '0.85rem', fontStyle: 'italic', textAlign: 'center', padding: '15px 0' }}>
+                  Siswa dengan nama "{studentSearchQuery}" tidak ditemukan.
+                </p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {filteredStudentsForList.map((s) => (
+                    <div 
+                      key={s.id} 
+                      style={{ 
+                        background: '#f8f9fa', 
+                        padding: '12px', 
+                        borderRadius: '10px', 
+                        display: 'flex', 
+                        justifyContent: 'space-between', 
+                        alignItems: 'center',
+                        fontSize: '0.85rem'
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontWeight: 600, color: '#1b4332', fontSize: '0.9rem' }}>{s.nama_siswa}</div>
+                        <div style={{ color: '#6c757d', marginTop: '2px' }}>User: {s.username} | Pass: {s.password}</div>
+                        <div style={{ color: '#888', fontSize: '0.75rem', marginTop: '2px' }}>Public Token: {s.token}</div>
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button 
+                          onClick={() => handleOpenStudentModal(s)} 
+                          style={{ background: 'none', border: 'none', color: '#2d6a4f', cursor: 'pointer' }}
+                          title="Edit Siswa"
+                        >
+                          <Edit size={16} />
+                        </button>
+                        <button 
+                          onClick={() => handleDeleteStudent(s.id)} 
+                          style={{ background: 'none', border: 'none', color: '#c62828', cursor: 'pointer' }}
+                          title="Hapus Siswa"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+          </>
         )}
 
         {/* TAB 3: BERI STEMPEL */}
@@ -904,7 +1000,6 @@ export const AdminDashboard = ({ onLogout }) => {
                         </a>
                       )}
 
-                      {/* Tampilan Komentar Wali Murid */}
                       <div className="comment-box" style={{ marginTop: '12px', background: 'rgba(0,0,0,0.01)', padding: '10px', borderRadius: '8px' }}>
                         <span style={{ fontSize: '0.78rem', fontWeight: 600, color: '#1b4332', display: 'block', marginBottom: '6px' }}>
                           Tanggapan Wali Murid ({(comments[a.id] || []).length})

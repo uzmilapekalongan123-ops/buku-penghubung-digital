@@ -27,8 +27,8 @@ export const PublicReport = () => {
   const [searchDate, setSearchDate] = useState('');
   const [searchResult, setSearchResult] = useState(null);
 
-  // Modal State untuk detail stempel
-  const [selectedBadge, setSelectedBadge] = useState(null);
+  // --- State Modal Detail Stempel Terkelompok ---
+  const [selectedBadgeGroup, setSelectedBadgeGroup] = useState(null); // { master: {}, instances: [] }
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -114,7 +114,6 @@ export const PublicReport = () => {
     }
   };
 
-  // Menentukan daftar bulan/tahun yang relevan berdasarkan tanggal absensi siswa
   const calculateAvailableMonths = (records) => {
     const list = [];
     const today = new Date();
@@ -144,7 +143,6 @@ export const PublicReport = () => {
     setSelectedYear(newestDate.getFullYear());
   };
 
-  // Logika Hari Libur & Rekonstruksi Kehadiran dalam Bulan Terpilih
   const getMonthlyAttendanceDetails = () => {
     if (!latestRecordDateStr) return { stats: { hadir: 0, sakit: 0, izin: 0, alpa: 0, libur: 0, persentase: 100 }, calendarDays: [] };
 
@@ -210,7 +208,6 @@ export const PublicReport = () => {
 
   const { stats, calendarDays } = getMonthlyAttendanceDetails();
 
-  // Membuka modal detail ketidakhadiran (Sakit, Izin, Alpa)
   const openAbsenceDetail = (statusType) => {
     const list = calendarDays.filter(d => d.status === statusType);
     setAbsenceDetailModal({
@@ -220,7 +217,6 @@ export const PublicReport = () => {
     });
   };
 
-  // Aksi Pencarian Tanggal Kehadiran
   const handleSearchDate = (e) => {
     const dateVal = e.target.value;
     setSearchDate(dateVal);
@@ -256,6 +252,24 @@ export const PublicReport = () => {
       }
     }
   };
+
+  const getGroupedBadges = () => {
+    const groups = {};
+    badges.forEach(b => {
+      if (!b.master_badge) return;
+      const bid = b.badge_id;
+      if (!groups[bid]) {
+        groups[bid] = {
+          master: b.master_badge,
+          instances: []
+        };
+      }
+      groups[bid].instances.push(b);
+    });
+    return Object.values(groups);
+  };
+
+  const groupedBadges = getGroupedBadges();
 
   const namaBulan = [
     'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
@@ -469,31 +483,51 @@ export const PublicReport = () => {
           )}
         </Card>
 
-        {/* 4. Koleksi Stempel Apresiasi */}
+        {/* 4. Koleksi Stempel Apresiasi Terkelompok */}
         <Card>
           <h3 style={{ fontSize: '1.1rem', color: '#1b4332', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Award size={20} /> Lencana Stempel ({badges.length})
           </h3>
-          {badges.length === 0 ? (
+          {groupedBadges.length === 0 ? (
             <p style={{ color: '#6c757d', fontSize: '0.85rem', fontStyle: 'italic', textAlign: 'center', padding: '15px 0' }}>
               Belum ada stempel apresiasi yang tercatat.
             </p>
           ) : (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', margin: '10px 0' }}>
-              {badges.map((b) => (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', margin: '10px 0' }}>
+              {groupedBadges.map((item) => (
                 <div 
-                  key={b.id} 
+                  key={item.master.id} 
                   className="badge-emoji"
-                  onClick={() => setSelectedBadge(b.master_badge)}
-                  title={b.master_badge?.nama_stempel}
+                  onClick={() => setSelectedBadgeGroup(item)}
+                  title={item.master.nama_stempel}
+                  style={{ position: 'relative', width: '54px', height: '54px', fontSize: '26px' }}
                 >
-                  {b.master_badge?.simbol || '⭐'}
+                  {item.master.simbol || '⭐'}
+
+                  {/* Counter di pojok kanan atas */}
+                  {item.instances.length > 1 && (
+                    <div style={{
+                      position: 'absolute',
+                      top: '-6px',
+                      right: '-6px',
+                      background: 'linear-gradient(135deg, #d4af37, #b58d16)',
+                      color: 'white',
+                      borderRadius: '10px',
+                      padding: '2px 6px',
+                      fontSize: '0.7rem',
+                      fontWeight: 700,
+                      border: '1.5px solid white',
+                      boxShadow: 'var(--shadow-sm)'
+                    }}>
+                      {item.instances.length}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
           )}
           <p style={{ fontSize: '0.75rem', color: '#888', fontStyle: 'italic', marginTop: '6px' }}>
-            *Ketuk stempel untuk melihat detail penghargaan.
+            *Ketuk stempel untuk melihat detail & catatan guru.
           </p>
         </Card>
 
@@ -598,34 +632,55 @@ export const PublicReport = () => {
         </div>
       </Modal>
 
-      {/* MODAL 2: Detail Stempel */}
+      {/* MODAL 2: Detail Stempel Terkelompok */}
       <Modal 
-        isOpen={!!selectedBadge} 
-        onClose={() => setSelectedBadge(null)} 
+        isOpen={!!selectedBadgeGroup} 
+        onClose={() => setSelectedBadgeGroup(null)} 
         title="Detail Stempel Apresiasi"
       >
-        {selectedBadge && (
-          <div style={{ textAlign: 'center', padding: '10px 0' }}>
-            {selectedBadge.gambar_url ? (
-              <img 
-                src={selectedBadge.gambar_url} 
-                alt={selectedBadge.nama_stempel} 
-                style={{ width: '80px', height: '80px', objectFit: 'contain', marginBottom: '16px', borderRadius: '50%' }}
-              />
-            ) : (
-              <div style={{ fontSize: '4rem', marginBottom: '16px', animation: 'bounce 2s infinite' }}>
-                {selectedBadge.simbol || '⭐'}
+        {selectedBadgeGroup && (
+          <div style={{ padding: '10px 0' }}>
+            <div style={{ textAlign: 'center', marginBottom: '16px' }}>
+              {selectedBadgeGroup.master.gambar_url ? (
+                <img 
+                  src={selectedBadgeGroup.master.gambar_url} 
+                  alt={selectedBadgeGroup.master.nama_stempel} 
+                  style={{ width: '80px', height: '80px', objectFit: 'contain', marginBottom: '12px', borderRadius: '50%' }}
+                />
+              ) : (
+                <div style={{ fontSize: '4.5rem', marginBottom: '12px' }}>
+                  {selectedBadgeGroup.master.simbol || '⭐'}
+                </div>
+              )}
+              <h4 style={{ fontSize: '1.25rem', color: '#1b4332', fontWeight: 700, marginBottom: '6px' }}>
+                {selectedBadgeGroup.master.nama_stempel}
+              </h4>
+              <span style={{ display: 'inline-block', padding: '4px 12px', background: '#fcf6bd', color: '#b58d16', borderRadius: '12px', fontSize: '0.8rem', fontWeight: 600 }}>
+                Grup: {selectedBadgeGroup.master.grup_stempel}
+              </span>
+              <p style={{ color: '#555', fontSize: '0.9rem', marginTop: '12px', lineHeight: 1.5, background: '#f4f7f6', padding: '12px', borderRadius: '10px' }}>
+                {selectedBadgeGroup.master.deskripsi}
+              </p>
+            </div>
+
+            {/* Riwayat Kapan Saja Didapatkan */}
+            <div style={{ borderTop: '1px solid rgba(0,0,0,0.08)', paddingTop: '16px' }}>
+              <h5 style={{ color: '#1b4332', fontSize: '0.92rem', fontWeight: 600, marginBottom: '10px' }}>
+                Riwayat Penerimaan (Total: {selectedBadgeGroup.instances.length} Kali)
+              </h5>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '180px', overflowY: 'auto' }}>
+                {selectedBadgeGroup.instances.map((instance, idx) => (
+                  <div key={idx} style={{ background: '#fcfcfc', border: '1px solid rgba(0,0,0,0.04)', padding: '10px', borderRadius: '8px', fontSize: '0.82rem' }}>
+                    <div style={{ color: '#888', fontWeight: 500, marginBottom: '2px' }}>
+                      {new Date(instance.tanggal_waktu).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                    <p style={{ margin: 0, color: '#333' }}>
+                      {instance.catatan ? `"${instance.catatan}"` : <i>"Diberikan stempel tanpa catatan tambahan."</i>}
+                    </p>
+                  </div>
+                ))}
               </div>
-            )}
-            <h4 style={{ fontSize: '1.2rem', color: '#1b4332', fontWeight: 700, marginBottom: '8px' }}>
-              {selectedBadge.nama_stempel}
-            </h4>
-            <span style={{ display: 'inline-block', padding: '4px 12px', background: '#fcf6bd', color: '#b58d16', borderRadius: '12px', fontSize: '0.8rem', fontWeight: 600, marginBottom: '16px' }}>
-              Grup: {selectedBadge.grup_stempel}
-            </span>
-            <p style={{ color: '#555', fontSize: '0.95rem', lineHeight: 1.5, background: '#f4f7f6', padding: '16px', borderRadius: '12px' }}>
-              {selectedBadge.deskripsi}
-            </p>
+            </div>
           </div>
         )}
       </Modal>
