@@ -15,6 +15,8 @@ export const AdminDashboard = ({ onLogout }) => {
   const [isEditingWali, setIsEditingWali] = useState(false);
   const [waliName, setWaliName] = useState('');
   const [waliWa, setWaliWa] = useState('');
+  const [waliUsername, setWaliUsername] = useState('guru');
+  const [waliPassword, setWaliPassword] = useState('amal123');
 
   // --- Search Query State ---
   const [attendanceSearchQuery, setAttendanceSearchQuery] = useState('');
@@ -106,6 +108,8 @@ export const AdminDashboard = ({ onLogout }) => {
         setClassInfo(clsData[0]);
         setWaliName(clsData[0].nama_wali);
         setWaliWa(clsData[0].wa_wali);
+        setWaliUsername(clsData[0].username || 'guru');
+        setWaliPassword(clsData[0].password || 'amal123');
         
         const { data: stdData } = await supabase
           .from('siswa')
@@ -132,13 +136,24 @@ export const AdminDashboard = ({ onLogout }) => {
     try {
       const { error } = await supabase
         .from('kelas')
-        .update({ nama_wali: waliName, wa_wali: waliWa })
+        .update({ 
+          nama_wali: waliName, 
+          wa_wali: waliWa,
+          username: waliUsername.trim(),
+          password: waliPassword.trim()
+        })
         .eq('id', classInfo.id);
 
       if (error) throw error;
-      setClassInfo(prev => ({ ...prev, nama_wali: waliName, wa_wali: waliWa }));
+      setClassInfo(prev => ({ 
+        ...prev, 
+        nama_wali: waliName, 
+        wa_wali: waliWa,
+        username: waliUsername.trim(),
+        password: waliPassword.trim()
+      }));
       setIsEditingWali(false);
-      showToast('Data wali kelas berhasil diperbarui!');
+      showToast('Data wali kelas & kredensial berhasil diperbarui!', 'success');
     } catch (err) {
       console.error(err);
       showToast('Gagal memperbarui data Wali Kelas.', 'error');
@@ -719,6 +734,24 @@ export const AdminDashboard = ({ onLogout }) => {
                 onChange={(e) => setWaliWa(e.target.value)} 
                 placeholder="Nomor WA Wali (e.g. 628...)"
               />
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <input 
+                  type="text" 
+                  className="form-input" 
+                  style={{ padding: '6px 10px', fontSize: '0.85rem', flex: 1 }} 
+                  value={waliUsername} 
+                  onChange={(e) => setWaliUsername(e.target.value)} 
+                  placeholder="Username Guru"
+                />
+                <input 
+                  type="text" 
+                  className="form-input" 
+                  style={{ padding: '6px 10px', fontSize: '0.85rem', flex: 1 }} 
+                  value={waliPassword} 
+                  onChange={(e) => setWaliPassword(e.target.value)} 
+                  placeholder="Password Guru Baru"
+                />
+              </div>
               <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
                 <button onClick={handleUpdateWali} style={{ background: '#d4af37', border: 'none', color: 'white', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }}>Simpan</button>
                 <button onClick={() => setIsEditingWali(false)} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem' }}>Batal</button>
@@ -731,9 +764,15 @@ export const AdminDashboard = ({ onLogout }) => {
                 <p><strong>WhatsApp:</strong> {classInfo?.wa_wali}</p>
               </div>
               <button 
-                onClick={() => setIsEditingWali(true)} 
+                onClick={() => {
+                  setWaliName(classInfo?.nama_wali || '');
+                  setWaliWa(classInfo?.wa_wali || '');
+                  setWaliUsername(classInfo?.username || 'guru');
+                  setWaliPassword(classInfo?.password || 'amal123');
+                  setIsEditingWali(true);
+                }} 
                 style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer' }}
-                title="Edit Wali Kelas"
+                title="Edit Wali Kelas & Kredensial"
               >
                 <Edit size={18} />
               </button>

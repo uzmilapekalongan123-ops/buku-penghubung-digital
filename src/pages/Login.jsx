@@ -18,15 +18,18 @@ export const Login = ({ onLoginSuccess, forcedRole }) => {
 
     try {
       if (role === 'teacher') {
-        // Login Guru / Admin
-        // Menggunakan kredensial bawaan untuk satu kelas (bisa disesuaikan lewat env)
-        const adminUser = 'guru';
-        const adminPass = 'amal123';
+        // Login Guru / Admin - memeriksa database kelas
+        const { data, error: dbError } = await supabase
+          .from('kelas')
+          .select('id, username, password')
+          .eq('username', username.trim())
+          .eq('password', password.trim())
+          .maybeSingle();
 
-        if (username === adminUser && password === adminPass) {
-          onLoginSuccess({ role: 'teacher', username: 'Guru/Wali Kelas' });
+        if (dbError || !data) {
+          setError('Username atau password Guru/Wali Kelas salah.');
         } else {
-          setError('Username atau password Guru salah.');
+          onLoginSuccess({ role: 'teacher', username: 'Guru/Wali Kelas', classId: data.id });
         }
       } else {
         // Login Wali Murid - memeriksa database siswa
@@ -183,10 +186,8 @@ export const Login = ({ onLoginSuccess, forcedRole }) => {
 
       <div style={{ textAlign: 'center', marginTop: '24px', fontSize: '0.8rem', color: '#888' }}>
         <p>© 2026 Proyek Amal Pendidikan</p>
-        {role === 'parent' ? (
+        {role === 'parent' && (
           <p style={{ marginTop: '4px' }}>Lupa password? Hubungi Wali Kelas untuk reset password.</p>
-        ) : (
-          <p style={{ marginTop: '4px' }}>Kredensial Guru bawaan: <b>guru</b> / <b>amal123</b></p>
         )}
       </div>
     </div>

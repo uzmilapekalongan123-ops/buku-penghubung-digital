@@ -19,6 +19,8 @@ CREATE TABLE kelas (
     nama_kelas VARCHAR(255) NOT NULL,
     nama_wali VARCHAR(255) NOT NULL,
     wa_wali VARCHAR(50) NOT NULL,
+    username VARCHAR(100) DEFAULT 'guru' NOT NULL,
+    password VARCHAR(100) DEFAULT 'amal123' NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
